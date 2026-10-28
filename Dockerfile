@@ -4,7 +4,11 @@ FROM node:24-slim AS build
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY package.json package-lock.json ./
-RUN npm ci
+# A rede do VPS pode cortar ligações ao registo npm (ECONNRESET): menos ligações em
+# paralelo, mais tentativas, e cache entre builds para não voltar a descarregar tudo.
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --no-audit --no-fund --maxsockets=4 \
+      --fetch-retries=5 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=120000
 COPY . .
 RUN npm run build
 
