@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resumoPorZona } from "./analysis/previsao-btt";
+import { resumoPorZona, setoresContinuos } from "./analysis/previsao-btt";
 import { lerDuracao } from "./formato";
 import { desnivelPositivo, haversine, lerGpx, streamsDoGpx } from "./gpx";
 
@@ -68,5 +68,21 @@ describe("tempo-alvo e zonas", () => {
     expect(r.zonas[2]).toMatchObject({ comp: 2000, referenciaS: 800, previstoS: 770 });
     expect(r.setores.map((z) => z.nome)).toEqual(["Subidas", "Plano", "Descidas"]);
     expect(r.setores[0].desnivel).toBeCloseTo(120);
+  });
+
+  it("setores contínuos: junta segmentos seguidos e absorve os curtos (< 1 km)", () => {
+    const seg = (dIni: number, comp: number, declive: number) => ({
+      dIni, comp, declive, classe: "", classeIdx: 0, referenciaS: comp / 5, previstoS: comp / 5.5, necessarioS: comp / 6,
+    });
+    const z = setoresContinuos([
+      seg(0, 600, 0.06), seg(600, 700, 0.08), // subida de 1,3 km
+      seg(1300, 300, 0), // plano curto: absorvido
+      seg(1600, 900, 0.05), // subida
+      seg(2500, 1500, -0.06), // descida
+    ]);
+    expect(z.map((s) => s.tipo)).toEqual(["subida", "descida"]);
+    expect(z[0]).toMatchObject({ numero: 1, dIni: 0, comp: 2500 });
+    expect(z[0].referenciaS).toBeCloseTo(500);
+    expect(z[1].comp).toBe(1500);
   });
 });

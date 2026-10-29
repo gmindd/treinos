@@ -779,3 +779,66 @@ export function backtestBtt(
     })),
   };
 }
+
+export type TipoSetor = "subida" | "plano" | "descida";
+
+export type SetorContinuo = {
+  numero: number;
+  tipo: TipoSetor;
+  dIni: number;
+  comp: number;
+  /** Declive médio (fração) = desnível líquido / comprimento. */
+  declive: number;
+  referenciaS: number | null;
+  previstoS: number | null;
+  necessarioS: number | null;
+};
+
+const tipoDe = (declive: number): TipoSetor => (declive > 0.01 ? "subida" : declive < -0.01 ? "descida" : "plano");
+
+/**
+ * Setores contínuos para o perfil: segmentos seguidos do mesmo tipo (subida > +1%, plano,
+ * descida < −1%); os blocos com menos de `minM` juntam-se ao vizinho mais comprido e ficam
+ * com o tipo do que tiver mais metros.
+ */
+export function setoresContinuos(segmentos: (LinhaSegmento & { dIni: number })[], minM = 1000): SetorContinuo[] {
+  type Bloco = { segs: (LinhaSegmento & { dIni: number })[] };
+  const comp = (b: Bloco) => b.segs.reduce((t, s) => t + s.comp, 0);
+  const tipo = (b: Bloco): TipoSetor => {
+    const m: Record<TipoSetor, number> = { subida: 0, plano: 0, descida: 0 };
+    for (const s of b.segs) m[tipoDe(s.declive)] += s.comp;
+    return (Object.keys(m) as TipoSetor[]).sort((x, y) => m[y] - m[x])[0];
+  };
+  const juntarIguais = (bs: Bloco[]) => {
+    const out: Bloco[] = [];
+    for (const b of bs) {
+      const u = out[out.length - 1];
+      if (u && tipo(u) === tipo(b)) u.segs.push(...b.segs);
+      else out.push({ segs: [...b.segs] });
+    }
+    return out;
+  };
+  let blocos = juntarIguais(segmentos.map((s) => ({ segs: [s] })));
+  while (blocos.length > 1) {
+    let i = -1;
+    for (let k = 0; k < blocos.length; k++) if (comp(blocos[k]) < minM && (i < 0 || comp(blocos[k]) < comp(blocos[i]))) i = k;
+    if (i < 0) break;
+    const viz = i === 0 ? 1 : i === blocos.length - 1 ? i - 1 : comp(blocos[i - 1]) >= comp(blocos[i + 1]) ? i - 1 : i + 1;
+    const [a, b] = viz < i ? [viz, i] : [i, viz];
+    blocos.splice(a, 2, { segs: [...blocos[a].segs, ...blocos[b].segs] });
+    blocos = juntarIguais(blocos);
+  }
+  return blocos.map((b, k) => {
+    const z = somar("", b.segs);
+    return {
+      numero: k + 1,
+      tipo: tipo(b),
+      dIni: b.segs[0].dIni,
+      comp: z.comp,
+      declive: z.comp > 0 ? z.desnivel / z.comp : 0,
+      referenciaS: z.referenciaS,
+      previstoS: z.previstoS,
+      necessarioS: z.necessarioS,
+    };
+  });
+}

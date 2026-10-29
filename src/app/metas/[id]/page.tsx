@@ -4,11 +4,11 @@ import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { meta } from "@/db/schema";
-import type { PrevisaoBtt, Zona } from "@/lib/analysis/previsao-btt";
+import { setoresContinuos, type PrevisaoBtt, type SetorContinuo, type Zona } from "@/lib/analysis/previsao-btt";
 import type { PrevisaoCorrida } from "@/lib/analysis/previsao-corrida";
 import { formatarData, formatarDistancia, formatarDuracao, formatarNumero } from "@/lib/formato";
 import { estadoValidacao, lerBacktests, previsaoDetalhada } from "@/lib/previsao/consultas";
-import { corClasse, GraficoAltimetria, MapaPercurso } from "../../graficos";
+import { corClasse, GraficoAltimetria, MapaPercurso, segundosCurtos } from "../../graficos";
 import { removerMeta } from "../actions";
 import { EditarMeta } from "../formularios";
 
@@ -167,19 +167,87 @@ type DetalhesBtt = PrevisaoBtt & {
   setores?: Zona[];
 };
 
-function Btt({ r }: { r: DetalhesBtt }) {
+const NOME_TIPO = { subida: "Subida", plano: "Plano", descida: "Descida" } as const;
+
+/** Altimetria com os setores numerados e os segundos ganhos/perdidos hoje em cada um. */
+function AltimetriaSetores({ r, metaId, vs }: { r: DetalhesBtt; metaId: number; vs: "referencia" | "meta" }) {
+  const setores = setoresContinuos(r.segmentos);
+  const temRef = setores.some((z) => z.referenciaS != null);
+  const modo = vs === "referencia" && temRef ? "referencia" : "meta";
+  const base = (z: SetorContinuo) => (modo === "referencia" ? z.referenciaS : z.necessarioS);
+  const delta = (z: SetorContinuo) => (z.previstoS != null && base(z) != null ? z.previstoS - (base(z) as number) : null);
+  const nomeRef = r.referencia ? formatarData(r.referencia.data) : r.gpx?.data ? formatarData(r.gpx.data) : "a referência";
+  const total = setores.reduce((t, z) => t + (delta(z) ?? 0), 0);
+  const botao = (ativo: boolean) => `rounded-full px-3 py-1 ${ativo ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "border border-zinc-300 dark:border-zinc-700"}`;
+  return (
+    <section className="flex flex-col gap-2">
+      <h2 className="text-lg font-medium">Altimetria e setores</h2>
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="text-zinc-500">Hoje face a:</span>
+        {temRef && (
+          <Link href={`/metas/${metaId}?vs=referencia`} className={botao(modo === "referencia")}>
+            {nomeRef}
+          </Link>
+        )}
+        <Link href={`/metas/${metaId}?vs=meta`} className={botao(modo === "meta")}>
+          meta {dur(r.segmentos.reduce((t, s) => t + (s.necessarioS ?? 0), 0))}
+        </Link>
+      </div>
+      <GraficoAltimetria
+        pontos={r.altimetria ?? []}
+        segmentos={r.segmentos}
+        setores={setores.map((z) => ({ numero: z.numero, dIni: z.dIni, comp: z.comp, delta: delta(z) }))}
+      />
+      <p className="text-xs text-zinc-600 dark:text-zinc-400">
+        Barras: segundos que <span className="text-red-700 dark:text-red-400">perdes (+)</span> ou{" "}
+        <span className="text-green-700 dark:text-green-400">ganhas (−)</span> hoje em cada setor,{" "}
+        {modo === "referencia" ? `face a ${nomeRef}` : "face ao tempo necessário para a meta"}. No total: <strong>{segundosCurtos(total)}</strong>.
+      </p>
+      <table className="w-full text-xs">
+        <thead className="text-left text-zinc-500">
+          <tr>
+            <th className="py-1 pr-1 font-normal">#</th>
+            <th className="pr-1 font-normal">Setor</th>
+            <th className="pr-1 font-normal">km</th>
+            <th className="pr-1 font-normal">{modo === "referencia" ? "Ref." : "Meta"}</th>
+            <th className="pr-1 font-normal">Hoje</th>
+            <th className="font-normal">±</th>
+          </tr>
+        </thead>
+        <tbody>
+          {setores.map((z) => {
+            const d = delta(z);
+            return (
+              <tr key={z.numero} className="border-t border-zinc-200 dark:border-zinc-800">
+                <td className="py-1 pr-1">{z.numero}</td>
+                <td className="whitespace-nowrap pr-1">
+                  {NOME_TIPO[z.tipo]} {z.tipo !== "plano" ? `${formatarNumero(z.declive * 100, 1)}%` : ""}
+                </td>
+                <td className="whitespace-nowrap pr-1">
+                  {formatarNumero(z.dIni / 1000, 1)}–{formatarNumero((z.dIni + z.comp) / 1000, 1)}
+                </td>
+                <td className="whitespace-nowrap pr-1">{dur(base(z))}</td>
+                <td className="whitespace-nowrap pr-1">{dur(z.previstoS)}</td>
+                <td className={`whitespace-nowrap ${d == null ? "" : d > 0 ? "text-red-700 dark:text-red-400" : "text-green-700 dark:text-green-400"}`}>
+                  {d == null ? "—" : segundosCurtos(d)}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+function Btt({ r, metaId, vs }: { r: DetalhesBtt; metaId: number; vs: "referencia" | "meta" }) {
   const nivel = ["mesmo troço", "mesma classe", "classes vizinhas", "física (B)"];
   const comMeta = r.setores?.filter((z) => z.necessarioS != null && z.previstoS != null) ?? [];
   const pior = [...comMeta].sort((a, b) => (b.previstoS! - b.necessarioS!) / b.necessarioS! - (a.previstoS! - a.necessarioS!) / a.necessarioS!)[0];
   const semRef = r.gpx && !r.gpx.temTempo;
   return (
     <>
-      {r.altimetria && (
-        <section className="flex flex-col gap-1">
-          <h2 className="text-lg font-medium">Altimetria</h2>
-          <GraficoAltimetria pontos={r.altimetria} segmentos={r.segmentos} />
-        </section>
-      )}
+      {r.altimetria && <AltimetriaSetores r={r} metaId={metaId} vs={vs} />}
       {r.setores && (
         <section className="flex flex-col gap-2">
           <h2 className="text-lg font-medium">Onde ganhas e onde perdes</h2>
@@ -308,9 +376,10 @@ function Btt({ r }: { r: DetalhesBtt }) {
   );
 }
 
-export default async function PaginaMeta({ params }: PageProps<"/metas/[id]">) {
+export default async function PaginaMeta({ params, searchParams }: PageProps<"/metas/[id]">) {
   await connection();
   const id = Number((await params).id);
+  const vs = (await searchParams).vs === "meta" ? "meta" : "referencia";
   if (!Number.isInteger(id)) notFound();
   const [[m], snap, backtests] = await Promise.all([
     db().select().from(meta).where(eq(meta.id, id)),
@@ -369,7 +438,7 @@ export default async function PaginaMeta({ params }: PageProps<"/metas/[id]">) {
       <Lista titulo="O que falta" itens={det.falta ?? []} />
       <Lista titulo="Avisos" itens={det.avisos ?? []} aviso />
       {snap?.suficiente && det.tipo === "corrida" && <Corrida r={det as unknown as PrevisaoCorrida} alvoS={m.tempoAlvoS} />}
-      {snap?.suficiente && det.tipo === "btt" && <Btt r={det as unknown as DetalhesBtt} />}
+      {snap?.suficiente && det.tipo === "btt" && <Btt r={det as unknown as DetalhesBtt} metaId={m.id} vs={vs} />}
       {!snap && <p className="text-sm">A calcular a previsão… recarrega a página dentro de alguns segundos.</p>}
     </main>
   );

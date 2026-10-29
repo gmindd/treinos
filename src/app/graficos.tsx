@@ -237,39 +237,61 @@ export function corClasse(idx: number, nClasses = 11): string {
   return idx < plano ? "#3b82f6" : idx === plano ? "#a1a1aa" : "#f97316";
 }
 
+/** Segundos com sinal, curto: "+42", "−1:05". */
+export function segundosCurtos(s: number): string {
+  const a = Math.round(Math.abs(s));
+  const txt = a >= 60 ? `${Math.floor(a / 60)}:${String(a % 60).padStart(2, "0")}` : String(a);
+  return `${s > 0 ? "+" : s < 0 ? "−" : ""}${txt}`;
+}
+
 /**
  * Perfil de altimetria: [distância m, altitude m] e as zonas de declive por cima, cada
- * segmento pintado com a cor da sua classe.
+ * segmento pintado com a cor da sua classe. Com `setores`, divide o perfil em setores
+ * numerados e desenha por baixo uma barra por setor com os segundos que se perdem
+ * (vermelho, para cima) ou ganham (verde, para baixo).
  */
 export function GraficoAltimetria({
   pontos,
   segmentos,
+  setores,
 }: {
   pontos: [number, number][];
   segmentos: { dIni: number; comp: number; classeIdx: number }[];
+  setores?: { numero: number; dIni: number; comp: number; delta: number | null }[];
 }) {
   if (pontos.length < 2) return null;
   const A = 110;
+  const B = setores ? 70 : 0;
   const dMax = pontos.at(-1)![0];
   const alts = pontos.map((p) => p[1]);
   const min = Math.min(...alts);
   const max = Math.max(...alts, min + 10);
   const x = (d: number) => (d / dMax) * L;
-  const y = (a: number) => A - ((a - min) / (max - min)) * (A - 6);
+  const y = (a: number) => A - ((a - min) / (max - min)) * (A - 14);
   const area = `M0,${A} ${pontos.map((p) => `L${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(" ")} L${L},${A} Z`;
   const linha = (d0: number, d1: number) =>
     pontos
       .filter((p) => p[0] >= d0 - 100 && p[0] <= d1 + 100)
       .map((p, i) => `${i ? "L" : "M"}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`)
       .join("");
+  const maxDelta = Math.max(10, ...(setores ?? []).map((z) => Math.abs(z.delta ?? 0)));
+  const meio = A + 18 + B / 2;
   return (
     <figure className="flex flex-col gap-1">
-      <svg viewBox={`0 0 ${L} ${A + 16}`} className="w-full" role="img" aria-label="Perfil de altimetria">
+      <svg viewBox={`0 0 ${L} ${A + 16 + B}`} className="w-full" role="img" aria-label="Perfil de altimetria">
         <path d={area} fill="currentColor" opacity={0.08} />
         {segmentos.map((s) => (
           <path key={s.dIni} d={linha(s.dIni, s.dIni + s.comp)} fill="none" stroke={corClasse(s.classeIdx)} strokeWidth={2.5} />
         ))}
-        <text x={2} y={9} fontSize={9} fill="currentColor" opacity={0.6}>
+        {setores?.map((z) => (
+          <g key={z.numero}>
+            {z.dIni > 0 && <line x1={x(z.dIni)} x2={x(z.dIni)} y1={0} y2={A + 16 + B} stroke="currentColor" strokeOpacity={0.15} strokeDasharray="2 2" />}
+            <text x={x(z.dIni + z.comp / 2)} y={8} fontSize={7} fill="currentColor" opacity={0.7} textAnchor="middle">
+              {z.numero}
+            </text>
+          </g>
+        ))}
+        <text x={2} y={18} fontSize={9} fill="currentColor" opacity={0.6}>
           {Math.round(max)} m
         </text>
         <text x={2} y={A - 3} fontSize={9} fill="currentColor" opacity={0.6}>
@@ -280,6 +302,28 @@ export function GraficoAltimetria({
             {d / 1000} km
           </text>
         ))}
+        {setores && (
+          <g>
+            <line x1={0} x2={L} y1={meio} y2={meio} stroke="currentColor" strokeOpacity={0.3} />
+            {setores.map((z) => {
+              if (z.delta == null) return null;
+              const w = Math.max(1, x(z.comp) - 1.5);
+              const h = (Math.abs(z.delta) / maxDelta) * (B / 2 - 9);
+              const perde = z.delta > 0;
+              const cx = x(z.dIni + z.comp / 2);
+              return (
+                <g key={z.numero}>
+                  <rect x={x(z.dIni) + 0.75} y={perde ? meio - h : meio} width={w} height={Math.max(0.5, h)} fill={perde ? "#dc2626" : "#16a34a"} opacity={0.75} />
+                  {w >= 14 && (
+                    <text x={cx} y={perde ? meio - h - 2 : meio + h + 7} fontSize={7} fill={perde ? "#dc2626" : "#16a34a"} textAnchor="middle">
+                      {segundosCurtos(z.delta)}
+                    </text>
+                  )}
+                </g>
+              );
+            })}
+          </g>
+        )}
       </svg>
     </figure>
   );
