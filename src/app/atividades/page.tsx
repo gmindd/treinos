@@ -1,8 +1,9 @@
 import { connection } from "next/server";
 import Link from "next/link";
-import { and, count, desc, eq, type SQL } from "drizzle-orm";
+import { and, count, eq, type SQL } from "drizzle-orm";
 import { db } from "@/db/client";
 import { atividade, modalidadeAtividade } from "@/db/schema";
+import { atividadesComMetricas } from "@/lib/calculo/consultas";
 import { AtividadeLinha, ROTULO_MODALIDADE } from "../atividade-linha";
 
 export const metadata = { title: "Atividades · Treino 26/27" };
@@ -22,13 +23,7 @@ export default async function PaginaAtividades({ searchParams }: PageProps<"/ati
   const onde = and(...filtros);
 
   const [lista, [{ n }]] = await Promise.all([
-    db()
-      .select()
-      .from(atividade)
-      .where(onde)
-      .orderBy(desc(atividade.inicio))
-      .limit(POR_PAGINA)
-      .offset((pagina - 1) * POR_PAGINA),
+    atividadesComMetricas(db(), POR_PAGINA, (pagina - 1) * POR_PAGINA, onde),
     db().select({ n: count() }).from(atividade).where(onde),
   ]);
   const paginas = Math.max(1, Math.ceil(n / POR_PAGINA));
@@ -72,8 +67,8 @@ export default async function PaginaAtividades({ searchParams }: PageProps<"/ati
         <p className="text-sm text-zinc-600 dark:text-zinc-400">Ainda não há atividades.</p>
       ) : (
         <ul className="flex flex-col gap-2">
-          {lista.map((a) => (
-            <AtividadeLinha key={a.id} a={a} />
+          {lista.map(({ a, m }) => (
+            <AtividadeLinha key={a.id} a={a} m={m} />
           ))}
         </ul>
       )}

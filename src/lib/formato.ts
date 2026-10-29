@@ -43,3 +43,11 @@ export function formatarDataHora(instante: Date): string {
     minute: "2-digit",
   }).format(instante);
 }
+
+/** Número com vírgula decimal: 0.874 → "0,87". */
+export function formatarNumero(v: number | null | undefined, casas = 0): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  // Evita "-0,00" quando o valor arredonda para zero.
+  const r = Number(v.toFixed(casas)) || 0;
+  return r.toLocaleString("pt-PT", { minimumFractionDigits: casas, maximumFractionDigits: casas, useGrouping: false });
+}

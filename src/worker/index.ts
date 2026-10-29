@@ -5,6 +5,7 @@ import { db } from "@/db/client";
 import { sistemaEstado } from "@/db/schema";
 import { FILAS } from "@/lib/fila";
 import { CHAVE_HEARTBEAT } from "@/lib/sistema";
+import { registarJobsCalculo } from "./calculo";
 import { registarJobsStrava } from "./strava";
 
 const FILA_HEARTBEAT = FILAS.heartbeat;
@@ -31,6 +32,7 @@ async function main() {
   await boss.work(FILA_HEARTBEAT, async () => heartbeat());
   await boss.schedule(FILA_HEARTBEAT, "* * * * *", null, { tz: "Europe/Lisbon" });
   await registarJobsStrava(boss);
+  await registarJobsCalculo(boss);
   await heartbeat();
   console.log("[worker] a correr");
 

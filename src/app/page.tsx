@@ -1,26 +1,37 @@
 import { connection } from "next/server";
 import Link from "next/link";
-import { asc, desc, eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { atividade, meta } from "@/db/schema";
-import { estadoSistema } from "@/lib/sistema";
+import { meta } from "@/db/schema";
+import { agruparSemanas, atividadesComMetricas, cargaRecente } from "@/lib/calculo/consultas";
+import { ESTADO_CALCULO } from "@/lib/calculo/recalcular";
+import { estadoSistema, lerEstado } from "@/lib/sistema";
 import { estadoStrava } from "@/lib/strava/estado";
 import { formatarData, formatarDataHora, formatarDuracao } from "@/lib/formato";
 import { sair } from "./login/actions";
 import { AtividadeLinha } from "./atividade-linha";
 import { CartaoStrava } from "./cartao-strava";
+import { GraficoCarga, GraficoSemanas } from "./graficos";
 
-// Painel provisório: estado do Strava, últimas atividades, metas e sistema.
-// O painel real (§10) chega na fase 6.
+// Painel provisório: Strava, carga, últimas atividades, metas e sistema.
+// O painel final (§10, com prescrições e previsões) chega na fase 6.
 export default async function Painel({ searchParams }: PageProps<"/">) {
   await connection();
-  const { strava } = await searchParams;
-  const [estado, strv, metas, ultimas] = await Promise.all([
+  const { strava, semanas: unidadeSemanas } = await searchParams;
+  const [estado, strv, metas, ultimas, carga, calculo] = await Promise.all([
     estadoSistema(db()),
     estadoStrava(db()),
     db().select().from(meta).where(eq(meta.ativa, true)).orderBy(asc(meta.dataProva)),
-    db().select().from(atividade).where(eq(atividade.apagada, false)).orderBy(desc(atividade.inicio)).limit(3),
+    atividadesComMetricas(db(), 3),
+    cargaRecente(db(), 112),
+    lerEstado<{ em: string }>(db(), ESTADO_CALCULO),
   ]);
+  const hoje = carga.at(-1);
+  const emHoras = unidadeSemanas === "horas";
+  const semanas = agruparSemanas(carga, 12).map((s) => ({
+    inicio: s.inicio,
+    valores: emHoras ? s.horas : s.tss,
+  }));
 
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-8 px-4 py-8">
@@ -33,7 +44,51 @@ export default async function Painel({ searchParams }: PageProps<"/">) {
         </form>
       </header>
 
+      <nav className="flex flex-wrap gap-4 text-sm underline">
+        <Link href="/atividades">Atividades</Link>
+        <Link href="/zwift">Análise Zwift</Link>
+        <Link href="/constantes">Constantes e parâmetros</Link>
+      </nav>
+
       <CartaoStrava estado={strv} mensagem={typeof strava === "string" ? strava : undefined} />
+
+      {hoje && (
+        <section className="flex flex-col gap-3">
+          <h2 className="text-lg font-medium">Fitness · Fadiga · Forma</h2>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="rounded-xl border border-zinc-200 p-2 dark:border-zinc-800">
+              <p className="text-xs text-zinc-500">Fitness (CTL)</p>
+              <p className="text-2xl font-semibold" style={{ color: "#0284c7" }}>{Math.round(hoje.ctl)}</p>
+            </div>
+            <div className="rounded-xl border border-zinc-200 p-2 dark:border-zinc-800">
+              <p className="text-xs text-zinc-500">Fadiga (ATL)</p>
+              <p className="text-2xl font-semibold" style={{ color: "#9333ea" }}>{Math.round(hoje.atl)}</p>
+            </div>
+            <div className="rounded-xl border border-zinc-200 p-2 dark:border-zinc-800">
+              <p className="text-xs text-zinc-500">Forma (TSB)</p>
+              <p className="text-2xl font-semibold">
+                {hoje.tsb >= 0 ? "+" : ""}
+                {Math.round(hoje.tsb)}
+                <span className="ml-1 text-sm font-normal text-zinc-500">
+                  {hoje.ctl > 0 ? `${Math.round((hoje.tsb / hoje.ctl) * 100)}%` : ""}
+                </span>
+              </p>
+            </div>
+          </div>
+          <GraficoCarga pontos={carga} />
+          <div className="flex items-baseline justify-between">
+            <h3 className="font-medium">Últimas 12 semanas</h3>
+            <span className="flex gap-2 text-sm">
+              <Link href="/" className={emHoras ? "underline" : "font-semibold"}>TSS</Link>
+              <Link href="/?semanas=horas" className={emHoras ? "font-semibold" : "underline"}>Horas</Link>
+            </span>
+          </div>
+          <GraficoSemanas semanas={semanas} unidade={emHoras ? "h" : "TSS"} />
+          {calculo && (
+            <p className="text-xs text-zinc-500">Calculado em {formatarDataHora(new Date(calculo.em))}</p>
+          )}
+        </section>
+      )}
 
       {ultimas.length > 0 && (
         <section className="flex flex-col gap-3">
@@ -44,8 +99,8 @@ export default async function Painel({ searchParams }: PageProps<"/">) {
             </Link>
           </div>
           <ul className="flex flex-col gap-2">
-            {ultimas.map((a) => (
-              <AtividadeLinha key={a.id} a={a} />
+            {ultimas.map(({ a, m }) => (
+              <AtividadeLinha key={a.id} a={a} m={m} />
             ))}
           </ul>
         </section>

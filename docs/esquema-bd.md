@@ -31,7 +31,9 @@ A fila de jobs do pg-boss vive no schema `pgboss` (criado por ele).
 
 ## Decisões
 
-- **Constantes com histórico.** O valor válido numa data é o da maior `data_efetiva <= data`. Antes da primeira linha usa-se a mais antiga, porque não há histórico anterior a 22/10/2026. Na fase 2, o FTP histórico é estimado a partir do Zwift e entra com `origem = estimado`.
+- **Constantes com histórico.** O valor válido numa data é o da maior `data_efetiva <= data`. Antes da primeira linha usa-se a mais antiga, porque não há histórico anterior a 22/10/2026.
+- **FTP tirado das atividades.** Vem de duas fontes nas sessões do Zwift: o valor escrito na descrição ("novo ftp: 216W", "FTP update 190 -> 199W") ou, num teste sem valor escrito, a curva de potência (rampa = 75% da melhor de 1 min; teste de 20 min = 95%). Estas linhas têm `atividade_strava_id` e são refeitas a cada recálculo; as manuais nunca são tocadas e ganham em caso de conflito na mesma data.
+- **Sementes do CTL/ATL** (`ctl_semente`, `atl_semente`): constantes opcionais que fixam os valores no fim de um dia, para alinhar com o intervals.icu.
 - **Zonas de FC** numa só constante (`zonas_fc` = limites superiores de Z1..Z4), iguais em todas as modalidades.
 - **Streams** num único blob por atividade (gzip). É simples, compacto (≈100-300 kB por atividade) e chega para um atleta. Os cálculos descomprimem em memória.
 - **Modalidades**: `corrida · zwift · btt · tenis · forca · outros` nas atividades. Nas prescrições acrescenta-se `descanso` e não existe `outros`.
@@ -40,11 +42,14 @@ A fila de jobs do pg-boss vive no schema `pgboss` (criado por ele).
 - **Upsert por id**: cada alteração incrementa `versao` e guarda a versão anterior em `prescricao_historico`. O diff mostrado antes de gravar compara com a versão atual.
 - **Associação prescrição ↔ atividade**: `prescricao.atividade_id` (única) + `associacao` (`auto | confirmada | ambigua | manual`).
 
+## Análise por sessão (fase 2)
+
+Guardada em `atividade_metricas.detalhes` (JSON): constantes usadas, NP, limiar de corrida, hrTSS de comparação e, no Zwift, a curva de potência, a regressão FC/W, EF, desacoplamento, tempo acima de 88%/95% do FTP e contexto (hora, temperatura). Tudo é refeito pelo job `calculo-recalcular` a partir dos streams.
+
 ## Tabelas que entram em fases seguintes
 
 São adicionadas quando os motores forem implementados, para não fixar já a estrutura:
 
-- Fase 2: blocos estáveis do Zwift e regressão FC/W por sessão, MMP por sessão.
 - Fase 3: janelas estáveis de corrida (cache das janelas pré-processadas).
 - Fase 4: `percurso_segmento` (segmentos homogéneos do percurso-alvo) e cache de segmentos das voltas BTT.
 - Fase 7: clientes e tokens OAuth do servidor MCP.

@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { Job, PgBoss } from "pg-boss";
 import { db } from "@/db/client";
 import { stravaConta, webhookEvento } from "@/db/schema";
-import { FILAS, opcoesAtividade, type DadosAtividade } from "@/lib/fila";
+import { ATRASO_RECALCULO_S, FILAS, opcoesAtividade, type DadosAtividade } from "@/lib/fila";
 import { configStrava, LimiteStrava } from "@/lib/strava/api";
 import {
   garantirSubscricao,
@@ -43,6 +43,7 @@ export async function registarJobsStrava(boss: PgBoss) {
     try {
       const r = await importarAtividade(db(), stravaId);
       console.log(`[strava] atividade ${stravaId}: ${r}`);
+      await boss.sendAfter(FILAS.recalcular, {}, null, ATRASO_RECALCULO_S);
       if (eventoId) {
         await db().update(webhookEvento).set({ processadoEm: new Date(), erro: null }).where(eq(webhookEvento.id, eventoId));
       }

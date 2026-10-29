@@ -12,7 +12,12 @@ export const FILAS = {
   stravaReconciliar: "strava-reconciliar",
   /** Criar/confirmar a subscrição do webhook. */
   stravaSubscricao: "strava-subscricao",
+  /** Recalcular métricas e carga (depois de importar atividades ou mudar constantes). */
+  recalcular: "calculo-recalcular",
 } as const;
+
+/** Espera antes de recalcular: junta várias importações seguidas num só cálculo. */
+export const ATRASO_RECALCULO_S = 30;
 
 export type DadosAtividade = { stravaId: number; eventoId?: number };
 

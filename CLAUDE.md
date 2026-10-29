@@ -65,10 +65,11 @@ PWA instalável. Gráficos legíveis em 380 px de largura.
 - **Ténis de mesa e força**: registados no Strava e **entram no CTL** (hrTSS se houver FC; senão TSS estimado por hora, parâmetro).
 - **Prescrições alternativas** ("BTT social ou descanso"): itens separados com o mesmo `grupo_alternativas`. Se um for cumprido, os outros passam a `substituido`.
 - **Reforço/força** depois de uma corrida: prescrição separada com `modalidade: "forca"`.
-- **FTP de trabalho**: 211 W, desde 22/10/2026. Pode ser alterado na app ou pela conversa "Época 26/27" (import JSON e, na fase 7, MCP).
+- **FTP de trabalho**: 216 W, desde 22/10/2026 (ramp test do Zwift, confirmado a 29/10/2026). O FTP é **sempre** medido com o ramp test do Zwift. Pode ser alterado na app ou pela conversa "Época 26/27" (import JSON e, na fase 7, MCP).
 - **FC repouso**: 51. **LTHR e zonas de FC**: as mesmas em todas as modalidades e editáveis, porque ainda aparecem máximos novos a cada prova.
-- **Histórico de constantes anterior a 22/10/2026**: não existe. Antes da primeira data efetiva usa-se o valor mais antigo. Na fase 2 estima-se o FTP histórico a partir dos dados Zwift (linhas com origem `estimado`).
+- **Histórico de constantes anterior a 22/10/2026**: não existe. Antes da primeira data efetiva usa-se o valor mais antigo. Na fase 2 o FTP histórico obtém-se dos ramp tests anteriores no Zwift (FTP = 75% da melhor potência de 1 min) e, se faltarem, estima-se dos dados Zwift (origem `estimado`).
 - **Pace de limiar** (rTSS): estimado a partir dos dados.
+- **Referência intervals.icu (29/10/2026)**: Fitness (CTL) 39, Fadiga (ATL) 27, Forma +12 (31%). Na tradução PT do intervals.icu o rótulo "Forma" é o CTL e "Fitness %" é o TSB%.
 - **Fixtures** com `latlng` reais podem ir para o repositório.
 
 ## Stack e convenções
@@ -83,6 +84,10 @@ PWA instalável. Gráficos legíveis em 380 px de largura.
   - Os limites de pedidos são lidos dos cabeçalhos e guardados em `sistema_estado`. Ao atingi-los, o job é adiado para a janela seguinte.
   - Os eventos do webhook nunca são confiados: a atividade é sempre pedida de novo ao Strava.
   - `STRAVA_BASE_URL` serve para testar localmente contra um Strava simulado.
+- Cálculo (`src/lib/calculo/recalcular.ts`):
+  - Um só job (`calculo-recalcular`) refaz tudo a partir dos streams: FTP dos testes, TSS/TRIMP/zonas de cada atividade e CTL/ATL/TSB por dia.
+  - Corre depois de cada importação (com 30 s de atraso, para juntar várias), quando se muda uma constante ou um parâmetro, todos os dias às 00:15 e a cada arranque do worker.
+  - Os métodos de TSS são: potência (Zwift), rTSS (corrida, GAP face ao limiar estimado), hrTSS (resto, com FC) e `estimado_hora` (sem FC).
 - Segredos só em variáveis de ambiente (`.env` local, Coolify em produção). Nunca no repositório.
 - Local sem Docker: `npm run dev` arranca um Postgres embutido (`embedded-postgres`, dados em `.data/`), aplica migrações e seed, e lança web + worker.
 - Deploy: Coolify no VPS (Contabo, Ubuntu 24.04), domínio `treinos.pereiragabriel.com`. Guia em `docs/deploy-coolify.md`.

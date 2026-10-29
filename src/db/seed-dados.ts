@@ -15,9 +15,9 @@ export const constantesIniciais: {
   {
     chave: "ftp_w",
     dataEfetiva: "2026-10-22",
-    valor: 211,
+    valor: 216,
     origem: "teste",
-    nota: "FTP de trabalho. Rampa Zwift de 22/10/2026 deu 216 W.",
+    nota: "Ramp test Zwift de 22/10/2026 (método sempre usado para o FTP).",
   },
   { chave: "fc_max", dataEfetiva: "2026-09-27", valor: 190, origem: "teste", nota: "Sprint final 27/09/2026." },
   { chave: "fc_repouso", dataEfetiva: "2026-10-28", valor: 51, origem: "manual" },
@@ -54,7 +54,9 @@ export const parametrosIniciais: {
   // Carga (§9)
   { chave: "carga.ctl_dias", grupo: "carga", descricao: "Constante de tempo do Fitness (CTL)", unidade: "dias", valor: 42, origem: "literatura" },
   { chave: "carga.atl_dias", grupo: "carga", descricao: "Constante de tempo da Fadiga (ATL)", unidade: "dias", valor: 7, origem: "literatura" },
-  { chave: "carga.tss_hora_sem_fc", grupo: "carga", descricao: "TSS por hora de ténis/força sem FC", unidade: "TSS/h", valor: 30, origem: "heuristica" },
+  { chave: "carga.tss_hora_sem_fc", grupo: "carga", descricao: "TSS por hora de atividades sem FC (ténis, força, outros)", unidade: "TSS/h", valor: 30, origem: "heuristica" },
+  { chave: "carga.max_lacuna_s", grupo: "carga", descricao: "Intervalo entre amostras acima do qual é pausa", unidade: "s", valor: 10, origem: "heuristica" },
+  { chave: "carga.esforco_escala_tss", grupo: "carga", descricao: "Escala do esforço 0-10: 10·(1 − e^(−TSS/escala))", unidade: "TSS", valor: 100, origem: "heuristica" },
 
   // Corrida (§7.1)
   { chave: "corrida.aquecimento_descartado_min", grupo: "corrida", descricao: "Minutos iniciais descartados (aquecimento + cinética da FC)", unidade: "min", valor: 8, origem: "heuristica" },
@@ -73,6 +75,8 @@ export const parametrosIniciais: {
   { chave: "corrida.durabilidade_longa_min", grupo: "corrida", descricao: "Corrida contínua mais longa (21 d) abaixo da qual há penalização", unidade: "min", valor: 50, origem: "heuristica" },
   { chave: "corrida.durabilidade_volume_km", grupo: "corrida", descricao: "Volume semanal abaixo do qual há penalização", unidade: "km", valor: 20, origem: "heuristica" },
   { chave: "corrida.divergencia_ab", grupo: "corrida", descricao: "Divergência A/B a partir da qual se destaca", unidade: "fração", valor: 0.04, origem: "heuristica" },
+  { chave: "corrida.limiar_min_janelas", grupo: "corrida", descricao: "Janelas estáveis mínimas para estimar o limiar pela FC", valor: 15, origem: "heuristica" },
+  { chave: "corrida.limiar_dias_esforcos", grupo: "corrida", descricao: "Dias de melhores esforços usados para o limiar", unidade: "dias", valor: 90, origem: "heuristica" },
   { chave: "corrida.fc_eficiencia", grupo: "corrida", descricao: "FC de referência da eficiência (velocidade GAP a X bpm)", unidade: "bpm", valor: 150, origem: "heuristica" },
 
   // BTT (§7.2)
@@ -105,6 +109,9 @@ export const parametrosIniciais: {
   { chave: "zwift.janela_estavel_s", grupo: "zwift", descricao: "Duração das janelas estáveis", unidade: "s", valor: 180, origem: "heuristica" },
   { chave: "zwift.cv_potencia_max", grupo: "zwift", descricao: "CV máximo da potência numa janela estável", unidade: "fração", valor: 0.05, origem: "heuristica" },
   { chave: "zwift.descartar_inicio_bloco_s", grupo: "zwift", descricao: "Início de cada bloco descartado (cinética da FC)", unidade: "s", valor: 120, origem: "heuristica" },
+  { chave: "zwift.variacao_bloco", grupo: "zwift", descricao: "Variação da média de 30 s que inicia um novo bloco", unidade: "fração", valor: 0.075, origem: "heuristica" },
+  { chave: "zwift.limiares_ftp", grupo: "zwift", descricao: "Frações do FTP para o tempo acumulado por semana", unidade: "fração", valor: [0.88, 0.95], origem: "heuristica" },
+  { chave: "zwift.ef_if_max", grupo: "zwift", descricao: "IF máximo para uma sessão contar como Z2 no EF", unidade: "fração", valor: 0.75, origem: "heuristica" },
   { chave: "zwift.desacoplamento_bom", grupo: "zwift", descricao: "Desacoplamento Pa:HR abaixo do qual a durabilidade é boa", unidade: "fração", valor: 0.05, origem: "literatura" },
 
   // Avaliação (§6.2)

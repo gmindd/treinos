@@ -1,5 +1,6 @@
-import type { atividade } from "@/db/schema";
-import { formatarData, formatarDistancia, formatarDuracao } from "@/lib/formato";
+import Link from "next/link";
+import type { atividade, atividadeMetricas } from "@/db/schema";
+import { formatarData, formatarDistancia, formatarDuracao, formatarNumero } from "@/lib/formato";
 
 export const ROTULO_MODALIDADE: Record<string, string> = {
   corrida: "Corrida",
@@ -11,9 +12,10 @@ export const ROTULO_MODALIDADE: Record<string, string> = {
 };
 
 type Atividade = typeof atividade.$inferSelect;
+type Metricas = typeof atividadeMetricas.$inferSelect;
 
-/** Uma atividade numa lista: data, modalidade, nome e números principais. */
-export function AtividadeLinha({ a }: { a: Atividade }) {
+/** Uma atividade numa lista: data, modalidade, nome, números principais e esforço. */
+export function AtividadeLinha({ a, m }: { a: Atividade; m?: Metricas | null }) {
   const numeros = [
     formatarDuracao(a.duracaoMovimentoS),
     a.distanciaM ? formatarDistancia(a.distanciaM) : null,
@@ -25,14 +27,9 @@ export function AtividadeLinha({ a }: { a: Atividade }) {
   return (
     <li className="flex flex-col gap-1 rounded-xl border border-zinc-200 p-3 dark:border-zinc-800">
       <div className="flex items-baseline justify-between gap-3">
-        <a
-          href={`https://www.strava.com/activities/${a.stravaId}`}
-          target="_blank"
-          rel="noreferrer"
-          className="truncate font-medium hover:underline"
-        >
+        <Link href={`/atividades/${a.id}`} className="truncate font-medium hover:underline">
           {a.nome}
-        </a>
+        </Link>
         <span className="shrink-0 text-xs text-zinc-500">{formatarData(a.dataLocal)}</span>
       </div>
       <p className="flex flex-wrap gap-x-2 text-sm text-zinc-600 dark:text-zinc-400">
@@ -44,6 +41,12 @@ export function AtividadeLinha({ a }: { a: Atividade }) {
         {a.estadoStreams === "pendente" && <span className="text-amber-600">· streams por importar</span>}
         {a.estadoStreams === "sem_streams" && <span>· sem streams</span>}
       </p>
+      {m?.tss != null && (
+        <p className="text-sm">
+          Esforço <strong>{formatarNumero(m.esforco010, 1)}</strong>/10 · {Math.round(m.tss)} TSS
+          <span className="text-zinc-500"> ({m.metodoTss})</span>
+        </p>
+      )}
     </li>
   );
 }

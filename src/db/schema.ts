@@ -105,6 +105,8 @@ export const constante = pgTable(
     valorJson: jsonb("valor_json"),
     origem: origemValor("origem").notNull(),
     nota: text("nota"),
+    /** Atividade de onde o valor foi tirado (ex.: ramp test). Estas linhas são refeitas a cada recálculo. */
+    atividadeStravaId: bigint("atividade_strava_id", { mode: "number" }),
     criadoEm: criadoEm(),
   },
   (t) => [unique("constante_chave_data").on(t.chave, t.dataEfetiva)],
