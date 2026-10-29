@@ -56,6 +56,8 @@ export const parametrosIniciais: {
   { chave: "carga.atl_dias", grupo: "carga", descricao: "Constante de tempo da Fadiga (ATL)", unidade: "dias", valor: 7, origem: "literatura" },
   { chave: "carga.tss_hora_sem_fc", grupo: "carga", descricao: "TSS por hora de atividades sem FC (ténis, força, outros)", unidade: "TSS/h", valor: 30, origem: "heuristica" },
   { chave: "carga.max_lacuna_s", grupo: "carga", descricao: "Intervalo entre amostras acima do qual é pausa", unidade: "s", valor: 10, origem: "heuristica" },
+  { chave: "carga.banister_k2_k1", grupo: "carga", descricao: "Modelo de Banister: peso da fadiga face ao fitness no desempenho (P = CTL − k·ATL)", valor: 2, origem: "literatura" },
+  { chave: "carga.sensibilidade_frescura", grupo: "carga", descricao: "Efeito máximo da frescura/destreino no tempo previsto (ganho típico de um taper: 2-3%)", unidade: "fração", valor: 0.03, origem: "literatura" },
   { chave: "carga.esforco_escala_tss", grupo: "carga", descricao: "Escala do esforço 0-10: 10·(1 − e^(−TSS/escala))", unidade: "TSS", valor: 100, origem: "heuristica" },
 
   // Corrida (§7.1)
@@ -149,6 +151,7 @@ export const parametrosIniciais: {
   // Previsões (§7)
   { chave: "previsao.bootstrap_n", grupo: "previsao", descricao: "Reamostragens do bootstrap por sessão", valor: 200, origem: "heuristica" },
   { chave: "previsao.tau_semanas", grupo: "previsao", descricao: "Constante dos rendimentos decrescentes da projeção", unidade: "semanas", valor: 6, origem: "heuristica" },
+  { chave: "previsao.dias_descanso", grupo: "previsao", descricao: "Dias da estimativa \"sem treinos\" no gráfico da previsão", unidade: "dias", valor: 5, origem: "heuristica" },
   { chave: "previsao.ganho_max", grupo: "previsao", descricao: "Melhoria (ou perda) máxima projetada até à prova", unidade: "fração", valor: 0.08, origem: "heuristica" },
 
   // Avaliação (§6.2)

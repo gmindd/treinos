@@ -1,5 +1,5 @@
 // Leituras das previsões para a UI.
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "@/db/client";
 import { meta, previsaoSnapshot } from "@/db/schema";
 import type { backtestBtt } from "@/lib/analysis/previsao-btt";
@@ -22,6 +22,12 @@ export type Backtests = {
 };
 
 export const lerBacktests = (db: Db) => lerEstado<Backtests>(db, ESTADO_BACKTESTS);
+
+/** Estimativa dos próximos dias sem treinar (guardada no snapshot de hoje). */
+export type Descanso = {
+  hoje: { data: string; ctl: number; atl: number } | null;
+  dias: { data: string; ctl: number; atl: number; tsb: number; fator: number; tempoS: number }[];
+};
 
 /** Critério de aceitação: corrida (fase 3) erro mediano < 3%; BTT (fase 4) todas as provas < 4%. */
 export function estadoValidacao(b: Backtests | null, tipo: "corrida" | "btt") {
@@ -60,6 +66,7 @@ export async function previsoesMetas(db: Db) {
       projecaoP10S: previsaoSnapshot.projecaoP10S,
       projecaoP90S: previsaoSnapshot.projecaoP90S,
       probAlvo: previsaoSnapshot.probAlvo,
+      descanso: sql<Descanso | null>`${previsaoSnapshot.detalhes}->'descanso'`,
     })
     .from(previsaoSnapshot)
     .where(and(inArray(previsaoSnapshot.metaId, metas.map((m) => m.id)), eq(previsaoSnapshot.versaoModelo, VERSAO_PREVISAO)))
@@ -69,6 +76,7 @@ export async function previsoesMetas(db: Db) {
     return {
       meta: m,
       ultimo: proprios.at(-1) ?? null,
+      descanso: proprios.at(-1)?.descanso ?? null,
       historico: proprios.map((s) => ({ data: s.data, hoje: s.hojeS, projecao: s.projecaoS })),
     };
   });

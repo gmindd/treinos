@@ -42,3 +42,31 @@ export function serieCarga(
 export function esforco010(tss: number, escala: number): number {
   return 10 * (1 - Math.exp(-Math.max(0, tss) / escala));
 }
+
+/**
+ * Próximos `dias` sem treinar (TSS 0): o Fitness e a Fadiga decaem com as suas constantes
+ * de tempo. O desempenho segue o modelo de Banister, P = CTL − k·ATL (k = k2/k1 ≈ 2 na
+ * literatura): com fadiga alta, descansar sobe P; sem fadiga, só se perde fitness. O fator
+ * de tempo é 1 − sensibilidade·ΔP/CTL₀, limitado a ±sensibilidade (ganho típico de um taper).
+ */
+export function projecaoDescanso(
+  inicio: { data: string; ctl: number; atl: number },
+  dias: number,
+  o: { ctlDias: number; atlDias: number; k2k1: number; sensibilidade: number },
+): { data: string; ctl: number; atl: number; tsb: number; fator: number }[] {
+  const kc = 1 - Math.exp(-1 / o.ctlDias);
+  const ka = 1 - Math.exp(-1 / o.atlDias);
+  const p0 = inicio.ctl - o.k2k1 * inicio.atl;
+  const escala = Math.max(1, inicio.ctl);
+  let { ctl, atl } = inicio;
+  const out = [];
+  const d = new Date(`${inicio.data}T00:00:00Z`);
+  for (let i = 0; i < dias; i++) {
+    d.setUTCDate(d.getUTCDate() + 1);
+    ctl -= ctl * kc;
+    atl -= atl * ka;
+    const dp = (ctl - o.k2k1 * atl - p0) / escala;
+    out.push({ data: d.toISOString().slice(0, 10), ctl, atl, tsb: ctl - atl, fator: 1 - o.sensibilidade * Math.max(-1, Math.min(1, dp)) });
+  }
+  return out;
+}

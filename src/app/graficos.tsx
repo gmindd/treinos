@@ -1,5 +1,5 @@
 // Gráficos simples em SVG (desenhados no servidor, legíveis a 380 px).
-import { formatarData, formatarNumero } from "@/lib/formato";
+import { formatarData, formatarDuracao, formatarNumero } from "@/lib/formato";
 
 export const COR_MODALIDADE: Record<string, string> = {
   corrida: "#ea580c",
@@ -135,15 +135,31 @@ export function Sparkline({ valores, cor = "#0284c7" }: { valores: number[]; cor
 
 type PontoPrevisao = { data: string; hoje: number | null; projecao: number | null };
 
-/** Evolução da previsão (hoje e projeção) com a linha da meta; eixo em minutos. */
-export function GraficoPrevisao({ pontos, alvoS }: { pontos: PontoPrevisao[]; alvoS: number }) {
+/** Data curta: "2026-10-29" → "29/10". */
+const diaMes = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+
+/**
+ * Evolução da previsão (hoje e projeção) com a linha da meta; eixo em minutos. Cada ponto
+ * mostra a data e os valores ao passar o rato. `futuro`: estimativa dos próximos dias sem
+ * treinar, a laranja depois da linha "hoje".
+ */
+export function GraficoPrevisao({
+  pontos,
+  alvoS,
+  futuro = [],
+}: {
+  pontos: PontoPrevisao[];
+  alvoS: number;
+  futuro?: { data: string; tempoS: number }[];
+}) {
   const validos = pontos.filter((p) => p.hoje != null || p.projecao != null);
   if (validos.length < 2) return null;
   const A = 120;
-  const vals = validos.flatMap((p) => [p.hoje, p.projecao]).filter((v): v is number => v != null);
+  const n = validos.length + futuro.length;
+  const vals = [...validos.flatMap((p) => [p.hoje, p.projecao]), ...futuro.map((f) => f.tempoS)].filter((v): v is number => v != null);
   const min = Math.min(alvoS, ...vals) * 0.98;
   const max = Math.max(alvoS, ...vals) * 1.02;
-  const x = (i: number) => (i / (validos.length - 1)) * L;
+  const x = (i: number) => 6 + (i / Math.max(1, n - 1)) * (L - 12);
   const y = (v: number) => A - ((v - min) / (max - min)) * A;
   const linha = (k: "hoje" | "projecao") =>
     validos
@@ -151,10 +167,21 @@ export function GraficoPrevisao({ pontos, alvoS }: { pontos: PontoPrevisao[]; al
       .filter(Boolean)
       .map((c, i) => `${i ? "L" : "M"}${c}`)
       .join("");
-  const min2 = (s: number) => `${Math.floor(s / 60)}'`;
+  const iHoje = validos.length - 1;
+  const ultimoHoje = validos[iHoje].hoje;
+  const linhaFuturo =
+    futuro.length && ultimoHoje != null
+      ? [`M${x(iHoje).toFixed(1)},${y(ultimoHoje).toFixed(1)}`, ...futuro.map((f, k) => `L${x(iHoje + 1 + k).toFixed(1)},${y(f.tempoS).toFixed(1)}`)].join("")
+      : "";
+  const min2 = (v: number) => `${Math.floor(v / 60)}'`;
+  const fmt = (v: number | null) => (v != null ? formatarDuracao(v) : "—");
+  // Datas no eixo: ~5 marcas espaçadas, mais a de hoje.
+  const datas = [...validos.map((p) => p.data), ...futuro.map((f) => f.data)];
+  const passo = Math.max(1, Math.round(n / 5));
+  const marcas = datas.map((d, i) => ({ d, i })).filter(({ i }) => i % passo === 0 && Math.abs(i - iHoje) >= passo / 2);
   return (
     <figure className="flex flex-col gap-1">
-      <svg viewBox={`0 0 ${L} ${A + 20}`} className="w-full" role="img" aria-label="Evolução da previsão">
+      <svg viewBox={`0 0 ${L} ${A + 22}`} className="w-full" role="img" aria-label="Evolução da previsão">
         <line x1={0} x2={L} y1={y(alvoS)} y2={y(alvoS)} stroke="#16a34a" strokeDasharray="4 3" />
         <text x={L} y={y(alvoS) - 3} fontSize={9} fill="#16a34a" textAnchor="end">
           meta {min2(alvoS)}
@@ -165,18 +192,38 @@ export function GraficoPrevisao({ pontos, alvoS }: { pontos: PontoPrevisao[]; al
         <text x={2} y={A - 2} fontSize={9} fill="currentColor" opacity={0.5}>
           {min2(min)}
         </text>
+        {futuro.length > 0 && (
+          <g>
+            <line x1={x(iHoje)} x2={x(iHoje)} y1={0} y2={A} stroke="currentColor" strokeOpacity={0.25} strokeDasharray="2 2" />
+            <text x={x(iHoje)} y={A + 9} fontSize={8} fill="currentColor" opacity={0.7} textAnchor="middle">
+              hoje
+            </text>
+          </g>
+        )}
         <path d={linha("projecao")} fill="none" stroke="#9333ea" strokeWidth={1.2} strokeDasharray="3 2" />
         <path d={linha("hoje")} fill="none" stroke="#0284c7" strokeWidth={2} />
-        <text x={0} y={A + 16} fontSize={9} fill="currentColor" opacity={0.6}>
-          {formatarData(validos[0].data)}
-        </text>
-        <text x={L} y={A + 16} fontSize={9} fill="currentColor" opacity={0.6} textAnchor="end">
-          {formatarData(validos.at(-1)!.data)}
-        </text>
+        {linhaFuturo && <path d={linhaFuturo} fill="none" stroke="#ea580c" strokeWidth={2} strokeDasharray="2 2" />}
+        {marcas.map(({ d, i }) => (
+          <text key={d} x={x(i)} y={A + 19} fontSize={8} fill="currentColor" opacity={0.6} textAnchor="middle">
+            {diaMes(d)}
+          </text>
+        ))}
+        {/* Pontos invisíveis com a dica ao passar o rato. */}
+        {validos.map((p, i) => (
+          <circle key={p.data} cx={x(i)} cy={y(p.hoje ?? p.projecao ?? min)} r={6} fill="transparent">
+            <title>{`${formatarData(p.data)}: se fosse nesse dia ${fmt(p.hoje)} · projeção ${fmt(p.projecao)}`}</title>
+          </circle>
+        ))}
+        {futuro.map((f, k) => (
+          <circle key={f.data} cx={x(iHoje + 1 + k)} cy={y(f.tempoS)} r={6} fill="transparent">
+            <title>{`${formatarData(f.data)}: sem treinar ${fmt(f.tempoS)}`}</title>
+          </circle>
+        ))}
       </svg>
-      <figcaption className="flex gap-3 text-xs text-zinc-600 dark:text-zinc-400">
+      <figcaption className="flex flex-wrap gap-x-3 text-xs text-zinc-600 dark:text-zinc-400">
         <span style={{ color: "#0284c7" }}>━ Se fosse nesse dia</span>
         <span style={{ color: "#9333ea" }}>┅ Projeção para a prova</span>
+        {futuro.length > 0 && <span style={{ color: "#ea580c" }}>┅ Próximos {futuro.length} dias sem treinar</span>}
       </figcaption>
     </figure>
   );

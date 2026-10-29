@@ -135,6 +135,7 @@ export default async function Painel({ searchParams }: PageProps<"/">) {
               historico={x.historico}
               falta={faltas[i]}
               validacao={estadoValidacao(backtests, x.meta.tipo)}
+              descanso={x.descanso}
             />
           ))}
         </ul>

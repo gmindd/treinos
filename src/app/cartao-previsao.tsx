@@ -5,6 +5,7 @@ import type { meta } from "@/db/schema";
 import { metaDoSeed } from "@/db/seed-dados";
 import { diasDesde } from "@/lib/analysis/estatistica";
 import { formatarData, formatarDuracao, formatarNumero } from "@/lib/formato";
+import type { Descanso } from "@/lib/previsao/consultas";
 import { GraficoPrevisao } from "./graficos";
 import { BotaoApagar } from "./metas/formularios";
 
@@ -29,13 +30,16 @@ export function CartaoPrevisao({
   historico,
   falta,
   validacao,
+  descanso,
 }: {
   m: typeof meta.$inferSelect;
   ultimo: Snapshot | null;
   historico: { data: string; hoje: number | null; projecao: number | null }[];
   falta: string[];
   validacao: { passou: boolean | null; texto: string };
+  descanso?: Descanso | null;
 }) {
+  const ultimoDia = descanso?.dias.at(-1);
   const dias = Math.round(diasDesde(new Date().toISOString().slice(0, 10), m.dataProva));
   const ref = ultimo?.projecaoS ?? ultimo?.hojeS ?? null;
   const diferenca = ref != null ? ref - m.tempoAlvoS : null;
@@ -89,7 +93,15 @@ export function CartaoPrevisao({
               </dd>
             </div>
           </dl>
-          <GraficoPrevisao pontos={historico} alvoS={m.tempoAlvoS} />
+          <GraficoPrevisao pontos={historico} alvoS={m.tempoAlvoS} futuro={descanso?.dias ?? []} />
+          {ultimoDia && descanso?.hoje && ultimoDia.tempoS != null && (
+            <p className="text-xs text-zinc-600 dark:text-zinc-400">
+              Sem treinar até {formatarData(ultimoDia.data)}: <strong>{formatarDuracao(ultimoDia.tempoS)}</strong> · Fitness{" "}
+              {formatarNumero(descanso.hoje.ctl)} → {formatarNumero(ultimoDia.ctl)}, Fadiga {formatarNumero(descanso.hoje.atl)} →{" "}
+              {formatarNumero(ultimoDia.atl)}, Forma {formatarNumero(descanso.hoje.ctl - descanso.hoje.atl)} → {formatarNumero(ultimoDia.tsb)}{" "}
+              <span className="text-zinc-500">(modelo de Banister, estimativa)</span>
+            </p>
+          )}
         </>
       )}
       <p

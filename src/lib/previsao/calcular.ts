@@ -1,9 +1,10 @@
 // Previsões das metas (fases 3 e 4): carrega as atividades com streams, corre os motores
 // para cada meta ativa, grava o snapshot de hoje e os semanais em falta, e refaz os backtests.
 import { gunzipSync } from "node:zlib";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lte } from "drizzle-orm";
 import type { Db } from "@/db/client";
-import { atividade, meta, percurso, previsaoSnapshot } from "@/db/schema";
+import { atividade, cargaDiaria, meta, percurso, previsaoSnapshot } from "@/db/schema";
+import { projecaoDescanso } from "@/lib/analysis/carga";
 import { jsonNaData, numeroNaData, type LinhaConstante } from "@/lib/analysis/constantes";
 import { diasDesde, somarDias } from "@/lib/analysis/estatistica";
 import {
@@ -333,6 +334,22 @@ export async function recalcularPrevisoes(db: Db) {
     .from(previsaoSnapshot);
   const cache = new Map<number, ReturnType<typeof preparar>>();
 
+  // Próximos dias sem treinar (Banister): fator sobre o tempo de hoje de cada meta.
+  const [cargaHoje] = await db
+    .select({ data: cargaDiaria.data, ctl: cargaDiaria.ctl, atl: cargaDiaria.atl })
+    .from(cargaDiaria)
+    .where(lte(cargaDiaria.data, hoje))
+    .orderBy(desc(cargaDiaria.data))
+    .limit(1);
+  const descanso = cargaHoje
+    ? projecaoDescanso(cargaHoje, num(p, "previsao.dias_descanso", 5), {
+        ctlDias: num(p, "carga.ctl_dias", 42),
+        atlDias: num(p, "carga.atl_dias", 7),
+        k2k1: num(p, "carga.banister_k2_k1", 2),
+        sensibilidade: num(p, "carga.sensibilidade_frescura", 0.03),
+      })
+    : [];
+
   let gravados = 0;
   for (const m of metas) {
     const datas = [...semanas(hoje), hoje].filter((x) => x <= m.dataProva);
@@ -352,7 +369,16 @@ export async function recalcularPrevisoes(db: Db) {
         projecaoP10S: fin(r.projecao?.p10),
         projecaoP90S: fin(r.projecao?.p90),
         probAlvo: fin(r.projecao?.probAlvo ?? r.hoje?.probAlvo),
-        detalhes: r.detalhes,
+        detalhes:
+          completo && r.hoje
+            ? {
+                ...r.detalhes,
+                descanso: {
+                  hoje: cargaHoje,
+                  dias: descanso.map((x) => ({ ...x, tempoS: (r.hoje as { centralS: number }).centralS * x.fator })),
+                },
+              }
+            : r.detalhes,
       };
       await db
         .insert(previsaoSnapshot)

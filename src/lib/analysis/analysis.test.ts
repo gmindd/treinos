@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { diasEntre, esforco010, serieCarga } from "./carga";
+import { diasEntre, esforco010, projecaoDescanso, serieCarga } from "./carga";
 import { linhaNaData, numeroNaData } from "./constantes";
 import { amostrasCorrida, custoMinetti, janelasEstaveis, rTss, velocidadeLimiar, velocidadeNormalizada } from "./corrida";
 import { hrTss, tempoZonas, trimp, trimpHoraLimiar } from "./fc";
@@ -219,5 +219,23 @@ describe("Zwift", () => {
     expect(tendencia(sobe, false).veredicto).toBe("piorou");
     const ruido = sobe.map((p, i) => ({ ...p, valor: 150 + (i % 2 ? 5 : -5) }));
     expect(tendencia(ruido, true).veredicto).toBe("inconclusivo");
+  });
+});
+
+describe("descanso (Banister)", () => {
+  const o = { ctlDias: 42, atlDias: 7, k2k1: 2, sensibilidade: 0.03 };
+  it("com fadiga, 5 dias sem treinar baixam a fadiga mais do que o fitness e o tempo melhora", () => {
+    const r = projecaoDescanso({ data: "2026-10-29", ctl: 40, atl: 50 }, 5, o);
+    expect(r.map((x) => x.data)).toEqual(["2026-10-30", "2026-10-31", "2026-11-01", "2026-11-02", "2026-11-03"]);
+    expect(r[4].ctl).toBeCloseTo(40 * Math.exp(-5 / 42), 6);
+    expect(r[4].atl).toBeCloseTo(50 * Math.exp(-5 / 7), 6);
+    expect(r[4].tsb).toBeGreaterThan(r[0].tsb);
+    expect(r[4].fator).toBeLessThan(1);
+    expect(r[4].fator).toBeGreaterThanOrEqual(0.97);
+  });
+  it("sem fadiga, descansar só perde fitness (tempo piora um pouco)", () => {
+    const r = projecaoDescanso({ data: "2026-10-29", ctl: 40, atl: 0 }, 5, o);
+    expect(r[4].fator).toBeGreaterThan(1);
+    expect(r[4].fator).toBeLessThanOrEqual(1.03);
   });
 });
