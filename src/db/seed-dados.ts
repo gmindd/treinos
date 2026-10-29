@@ -61,6 +61,7 @@ export const parametrosIniciais: {
   // Corrida (§7.1)
   { chave: "corrida.aquecimento_descartado_min", grupo: "corrida", descricao: "Minutos iniciais descartados (aquecimento + cinética da FC)", unidade: "min", valor: 8, origem: "heuristica" },
   { chave: "corrida.v_paragem_ms", grupo: "corrida", descricao: "Velocidade abaixo da qual é paragem", unidade: "m/s", valor: 1.5, origem: "heuristica" },
+  { chave: "corrida.v_max_ms", grupo: "corrida", descricao: "Velocidade acima da qual a amostra é um salto do GPS (conta como paragem)", unidade: "m/s", valor: 8, origem: "heuristica" },
   { chave: "corrida.janela_declive_min_m", grupo: "corrida", descricao: "Janela mínima para o declive do GAP", unidade: "m", valor: 30, origem: "heuristica" },
   { chave: "corrida.atraso_fc_s", grupo: "corrida", descricao: "Atraso da FC face ao ritmo", unidade: "s", valor: 20, origem: "heuristica" },
   { chave: "corrida.janela_estavel_s", grupo: "corrida", descricao: "Duração das janelas estáveis", unidade: "s", valor: 150, origem: "heuristica" },

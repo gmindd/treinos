@@ -49,27 +49,32 @@ export function amostrasCorrida(
   dist: (number | null)[] | null,
   alt: (number | null)[] | null,
   fc: (number | null)[] | null,
-  opcoes: { vParagem: number; janelaDecliveM: number; maxLacuna?: number },
+  opcoes: { vParagem: number; janelaDecliveM: number; maxLacuna?: number; vMax?: number },
 ): AmostrasCorrida | null {
   if (!dist || dist.length !== time.length || time.length < 60) return null;
   const d = dist.map((v, i) => v ?? (i > 0 ? (dist[i - 1] ?? 0) : 0));
   const dec = declives(d, alt, opcoes.janelaDecliveM);
   const maxLacuna = opcoes.maxLacuna ?? 10;
+  // Saltos do GPS (ex.: 64 m no 1.º segundo) contam como paragem, não como sprint.
+  const vMax = opcoes.vMax ?? 8;
   const gap: (number | null)[] = time.map((t, i) => {
     if (i === time.length - 1) return 0;
     const dt = time[i + 1] - t;
     if (dt <= 0 || dt > maxLacuna) return 0;
     const v = (d[i + 1] - d[i]) / dt;
-    return v < opcoes.vParagem ? 0 : velocidadeGap(v, dec[i]);
+    return v < opcoes.vParagem || v > vMax ? 0 : velocidadeGap(v, dec[i]);
   });
   const gap1Hz = reamostrar1Hz(time, gap, maxLacuna, 0) as number[];
   const fc1Hz = fc ? reamostrar1Hz(time, fc, maxLacuna, null) : new Array(gap1Hz.length).fill(null);
   return { gap1Hz, fc1Hz, duracaoMovimentoS: gap1Hz.filter((v) => v > 0).length };
 }
 
-/** Velocidade GAP "normalizada": como a NP, 4.ª potência da média de 30 s, só em movimento. */
+/**
+ * Velocidade GAP "normalizada": como a NP, 4.ª potência da média de 30 s, só em movimento.
+ * Só entram médias de 30 s completas, para uma amostra isolada no início não pesar sozinha.
+ */
 export function velocidadeNormalizada(gap1Hz: number[]): number | null {
-  const m30 = mediaMovel(gap1Hz, 30).filter((_, i) => gap1Hz[i] > 0);
+  const m30 = mediaMovel(gap1Hz, 30).filter((_, i) => i >= 29 && gap1Hz[i] > 0);
   if (m30.length < 60) return null;
   return Math.pow(m30.reduce((s, v) => s + v ** 4, 0) / m30.length, 0.25);
 }

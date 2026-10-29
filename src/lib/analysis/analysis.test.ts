@@ -113,6 +113,14 @@ describe("corrida", () => {
     expect(rTss(3, 3600, 3).tss).toBeCloseTo(100, 6);
   });
 
+  it("rTSS: um salto do GPS no início não dispara a velocidade normalizada", () => {
+    // Corrida de 26/10/2026 (Strava 20736059352): o relógio marca 64 m e depois 14 m nos 2 primeiros segundos.
+    const d = [0, 64, 78, ...Array.from({ length: 2400 }, (_, i) => 78 + 2.3 * (i + 1))];
+    const t = d.map((_, i) => i);
+    const a = amostrasCorrida(t, d, null, null, { vParagem: 1.5, janelaDecliveM: 30 })!;
+    expect(velocidadeNormalizada(a.gap1Hz)).toBeCloseTo(2.3, 2);
+  });
+
   it("limiar: maior entre a regressão FC→velocidade e os esforços (Riegel para 60 min)", () => {
     const janelas = janelasEstaveis(amostras, { aquecimentoS: 480, janelaS: 150, cvMax: 0.05, atrasoFcS: 20 });
     expect(janelas.length).toBeGreaterThan(5);

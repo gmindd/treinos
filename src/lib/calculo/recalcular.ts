@@ -38,7 +38,7 @@ import { gravarEstado } from "@/lib/sistema";
 import { desempacotarStreams } from "@/lib/strava/mapear";
 import { INICIO_BACKFILL } from "@/lib/strava/sincronizar";
 
-export const VERSAO_MODELO = "fase2-1";
+export const VERSAO_MODELO = "fase2-2";
 export const ESTADO_CALCULO = "calculo.ultimo";
 
 type Parametros = Map<string, unknown>;
@@ -206,6 +206,7 @@ function calcularAtividade(
       vParagem: num(p, "corrida.v_paragem_ms", 1.5),
       janelaDecliveM: num(p, "corrida.janela_declive_min_m", 30),
       maxLacuna,
+      vMax: num(p, "corrida.v_max_ms", 8),
     });
     if (amostras) {
       const janelasCorrida = fc
