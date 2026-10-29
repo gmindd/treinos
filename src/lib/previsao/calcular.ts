@@ -1,22 +1,26 @@
 // Previsões das metas (fases 3 e 4): carrega as atividades com streams, corre os motores
 // para cada meta ativa, grava o snapshot de hoje e os semanais em falta, e refaz os backtests.
+import { gunzipSync } from "node:zlib";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import type { Db } from "@/db/client";
-import { atividade, meta, previsaoSnapshot } from "@/db/schema";
+import { atividade, meta, percurso, previsaoSnapshot } from "@/db/schema";
 import { jsonNaData, numeroNaData, type LinhaConstante } from "@/lib/analysis/constantes";
 import { diasDesde, somarDias } from "@/lib/analysis/estatistica";
 import {
   backtestBtt,
   perfisPacing,
   preparar,
+  prepararVolta,
   preverBtt,
+  resumoPorZona,
   type ParametrosBtt,
   type SessaoZwift,
   type VoltaBtt,
 } from "@/lib/analysis/previsao-btt";
 import { backtestCorrida, preverCorrida, type SessaoCorrida } from "@/lib/analysis/previsao-corrida";
 import { lerConstantes, lerParametros, lerStreams } from "@/lib/calculo/recalcular";
-import { dataIsoLisboa } from "@/lib/formato";
+import { dataIsoLisboa, formatarData } from "@/lib/formato";
+import { streamsDoGpx, type Gpx } from "@/lib/gpx";
 import { gravarEstado } from "@/lib/sistema";
 import {
   num,
@@ -118,9 +122,60 @@ function preverMetaCorrida(m: Meta, d: Dados, ate: string, p: Parametros, comple
   };
 }
 
-function preverMetaBtt(m: Meta, d: Dados, ate: string, pb: ParametrosBtt, linhas: LinhaConstante[], completo: boolean, cache: Map<number, ReturnType<typeof preparar>>): Resumo {
-  const idRef = m.referenciaStravaId ? d.stravaParaId.get(m.referenciaStravaId) : undefined;
-  const alvo = idRef != null ? d.voltas.find((v) => v.id === idRef) : undefined;
+/** Percurso de um GPX carregado, como "volta" (alvo do motor; nunca entra como dado de treino). */
+export type AlvoGpx = { volta: VoltaBtt; temTempo: boolean; temFc: boolean; data: string | null };
+
+function alvoDoGpx(id: number, nome: string, gpx: Gpx, pb: ParametrosBtt): AlvoGpx | null {
+  const t0 = gpx.pontos.find((x) => x.t != null)?.t;
+  const data = gpx.temTempo && t0 != null ? dataIsoLisboa(new Date(t0 * 1000)) : null;
+  // Pausas como nos streams do Strava (intervalos > max_lacuna); num GPX gravado de poucos em
+  // poucos segundos o limite sobe para 3× o intervalo típico entre pontos.
+  const s = streamsDoGpx(gpx);
+  const dts = s.time.slice(1).map((t, i) => t - s.time[i]).filter((x) => x > 0).sort((a, b) => a - b);
+  const dtTipico = dts[Math.floor(dts.length / 2)] ?? 1;
+  const volta = prepararVolta(
+    { id: -id, data: data ?? "2000-01-01", nome, sportType: null, comCriancas: false, duracaoMovimentoS: 0 },
+    s,
+    gpx.temTempo ? { ...pb, maxLacunaS: Math.max(pb.maxLacunaS, 3 * dtTipico) } : { ...pb, maxLacunaS: 1e9 },
+  );
+  return volta ? { volta, temTempo: gpx.temTempo, temFc: gpx.temFc, data } : null;
+}
+
+function preverMetaBtt(
+  m: Meta,
+  d: Dados,
+  gpx: Map<number, AlvoGpx | null>,
+  ate: string,
+  pb: ParametrosBtt,
+  linhas: LinhaConstante[],
+  completo: boolean,
+  cache: Map<number, ReturnType<typeof preparar>>,
+): Resumo {
+  let alvo: VoltaBtt | undefined;
+  let referencia: { tempoS: number; porSeg: number[] } | null = null;
+  let refIds: number[] = [];
+  let nomeRef = "";
+  let origem: Record<string, unknown> = {};
+  if (m.percursoId) {
+    const g = gpx.get(m.percursoId);
+    if (!g) return { suficiente: false, hoje: null, projecao: null, detalhes: { tipo: "btt", falta: ["Percurso: o GPX não deu para segmentar."] } };
+    alvo = g.volta;
+    if (g.temTempo) {
+      const porSeg = alvo.segmentos.map((s) => s.tempoMovS);
+      referencia = { tempoS: m.tempoReferenciaS ?? porSeg.reduce((t, x) => t + x, 0), porSeg };
+    }
+    nomeRef = g.temFc ? `FC do GPX${g.data ? ` (${formatarData(g.data)})` : ""}` : `FC constante de ${pb.fcProvaDefault} bpm`;
+    origem = { gpx: { temTempo: g.temTempo, temFc: g.temFc, data: g.data } };
+  } else {
+    const idRef = m.referenciaStravaId ? d.stravaParaId.get(m.referenciaStravaId) : undefined;
+    alvo = idRef != null ? d.voltas.find((v) => v.id === idRef) : undefined;
+    if (alvo) {
+      referencia = { tempoS: m.tempoReferenciaS ?? alvo.duracaoMovimentoS, porSeg: alvo.segmentos.map((s) => s.tempoMovS) };
+      refIds = [alvo.id];
+      nomeRef = `Como em ${alvo.data.slice(0, 4)}`;
+      origem = { referencia: { id: alvo.id, nome: alvo.nome, data: alvo.data } };
+    }
+  }
   if (!alvo) {
     return {
       suficiente: false,
@@ -138,9 +193,9 @@ function preverMetaBtt(m: Meta, d: Dados, ate: string, pb: ParametrosBtt, linhas
       ate,
       dataProva: m.dataProva,
       alvoS: m.tempoAlvoS,
-      perfis: perfisPacing(alvo, pb, `Como em ${alvo.data.slice(0, 4)}`),
-      refIds: [alvo.id],
-      referencia: { tempoS: m.tempoReferenciaS ?? alvo.duracaoMovimentoS, porSeg: alvo.segmentos.map((s) => s.tempoMovS) },
+      perfis: perfisPacing(alvo, pb, nomeRef),
+      refIds,
+      referencia,
       massa: massa(linhas),
       bootstrap: completo,
     },
@@ -150,13 +205,21 @@ function preverMetaBtt(m: Meta, d: Dados, ate: string, pb: ParametrosBtt, linhas
   // Sem bootstrap (snapshots semanais), guarda-se só o valor central.
   const hoje = r.hoje ?? (central.hojeS != null ? { centralS: central.hojeS, p10: NaN, p90: NaN, probAlvo: NaN } : null);
   const projecao = r.projecao ?? (central.projecaoS != null ? { centralS: central.projecaoS, p10: NaN, p90: NaN, probAlvo: NaN } : null);
-  const pontos = alvo.grelha.lat.map((la, k) => [la, alvo.grelha.lon[k]]);
+  const g = alvo.grelha;
   return {
     suficiente: r.suficiente,
     hoje,
     projecao,
     detalhes: completo
-      ? { tipo: "btt", ...r, referencia: { id: alvo.id, nome: alvo.nome, data: alvo.data }, mapa: pontos.filter((_, k) => k % 2 === 0) }
+      ? {
+          tipo: "btt",
+          ...r,
+          ...origem,
+          ...resumoPorZona(r.segmentos),
+          mapa: g.lat.map((la, k) => [la, g.lon[k]]).filter((_, k) => k % 2 === 0),
+          // Altimetria a cada 100 m (4 pontos da grelha): [distância, altitude].
+          altimetria: g.d.map((x, k) => [Math.round(x), Math.round(g.alt[k] * 10) / 10]).filter((_, k) => k % 4 === 0 || k === g.d.length - 1),
+        }
       : { tipo: "btt", cenarios: r.cenarios, falta: r.falta },
   };
 }
@@ -172,6 +235,14 @@ export async function recalcularPrevisoes(db: Db) {
   const pb = parametrosBtt(p, zonas[0]);
   const d = await carregar(db, p, pb);
   const metas = await db.select().from(meta).where(eq(meta.ativa, true));
+  const idsPercurso = metas.map((m) => m.percursoId).filter((x): x is number => x != null);
+  const gpx = new Map<number, AlvoGpx | null>();
+  if (idsPercurso.length) {
+    const ps = await db.select().from(percurso).where(inArray(percurso.id, idsPercurso));
+    for (const x of ps) {
+      gpx.set(x.id, x.pontos ? alvoDoGpx(x.id, x.nome, JSON.parse(gunzipSync(x.pontos).toString("utf8")) as Gpx, pb) : null);
+    }
+  }
   const existentes = await db
     .select({ metaId: previsaoSnapshot.metaId, data: previsaoSnapshot.data, versao: previsaoSnapshot.versaoModelo })
     .from(previsaoSnapshot);
@@ -185,7 +256,7 @@ export async function recalcularPrevisoes(db: Db) {
       if (!completo && existentes.some((e) => e.metaId === m.id && e.data === data && e.versao === VERSAO_PREVISAO)) continue;
       // Snapshot de `data` = previsão com os dados até ao fim desse dia.
       const ate = somarDias(data, 1);
-      const r = m.tipo === "corrida" ? preverMetaCorrida(m, d, ate, p, completo) : preverMetaBtt(m, d, ate, pb, linhas, completo, cache);
+      const r = m.tipo === "corrida" ? preverMetaCorrida(m, d, ate, p, completo) : preverMetaBtt(m, d, gpx, ate, pb, linhas, completo, cache);
       const valores = {
         versaoModelo: VERSAO_PREVISAO,
         suficiente: r.suficiente,

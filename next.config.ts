@@ -5,6 +5,11 @@ const nextConfig: NextConfig = {
   output: "standalone",
   // pg e pg-boss ficam fora do bundle do servidor.
   serverExternalPackages: ["pg", "pg-boss"],
+  // Ficheiros GPX de voltas longas chegam a vários MB (upload de percursos-alvo).
+  experimental: {
+    serverActions: { bodySizeLimit: "20mb" },
+    proxyClientMaxBodySize: "20mb",
+  },
   turbopack: {
     rules: {
       "*.css": {

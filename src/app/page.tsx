@@ -117,9 +117,14 @@ export default async function Painel({ searchParams }: PageProps<"/">) {
       <section className="flex flex-col gap-3">
         <div className="flex items-baseline justify-between">
           <h2 className="text-lg font-medium">Previsões</h2>
-          <Link href="/backtests" className="text-sm underline">
-            Backtests
-          </Link>
+          <span className="flex gap-3 text-sm">
+            <Link href="/metas/nova" className="underline">
+              Nova meta (GPX)
+            </Link>
+            <Link href="/backtests" className="underline">
+              Backtests
+            </Link>
+          </span>
         </div>
         <ul className="flex flex-col gap-3">
           {previsoes.map((x, i) => (

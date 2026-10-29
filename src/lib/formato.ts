@@ -51,3 +51,11 @@ export function formatarNumero(v: number | null | undefined, casas = 0): string 
   const r = Number(v.toFixed(casas)) || 0;
   return r.toLocaleString("pt-PT", { minimumFractionDigits: casas, maximumFractionDigits: casas, useGrouping: false });
 }
+
+/** "2:00:00" ou "1:55" (h:mm) → segundos; null se inválido. */
+export function lerDuracao(texto: string): number | null {
+  const m = /^\s*(\d{1,2}):([0-5]\d)(?::([0-5]\d))?\s*$/.exec(texto);
+  if (!m) return null;
+  const s = Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3] ?? 0);
+  return s > 0 ? s : null;
+}

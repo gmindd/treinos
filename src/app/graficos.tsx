@@ -228,3 +228,59 @@ export function MapaPercurso({
     </svg>
   );
 }
+
+/** Cor de uma classe de declive: descidas em azul, plano em cinzento, subidas de amarelo a vermelho. */
+export function corClasse(idx: number, nClasses = 11): string {
+  const plano = Math.floor(nClasses / 2) - 1;
+  const cores = ["#1e3a8a", "#1d4ed8", "#3b82f6", "#93c5fd", "#a1a1aa", "#fde047", "#facc15", "#f97316", "#ea580c", "#dc2626", "#7f1d1d"];
+  if (nClasses === cores.length) return cores[idx] ?? "#a1a1aa";
+  return idx < plano ? "#3b82f6" : idx === plano ? "#a1a1aa" : "#f97316";
+}
+
+/**
+ * Perfil de altimetria: [distância m, altitude m] e as zonas de declive por cima, cada
+ * segmento pintado com a cor da sua classe.
+ */
+export function GraficoAltimetria({
+  pontos,
+  segmentos,
+}: {
+  pontos: [number, number][];
+  segmentos: { dIni: number; comp: number; classeIdx: number }[];
+}) {
+  if (pontos.length < 2) return null;
+  const A = 110;
+  const dMax = pontos.at(-1)![0];
+  const alts = pontos.map((p) => p[1]);
+  const min = Math.min(...alts);
+  const max = Math.max(...alts, min + 10);
+  const x = (d: number) => (d / dMax) * L;
+  const y = (a: number) => A - ((a - min) / (max - min)) * (A - 6);
+  const area = `M0,${A} ${pontos.map((p) => `L${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(" ")} L${L},${A} Z`;
+  const linha = (d0: number, d1: number) =>
+    pontos
+      .filter((p) => p[0] >= d0 - 100 && p[0] <= d1 + 100)
+      .map((p, i) => `${i ? "L" : "M"}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`)
+      .join("");
+  return (
+    <figure className="flex flex-col gap-1">
+      <svg viewBox={`0 0 ${L} ${A + 16}`} className="w-full" role="img" aria-label="Perfil de altimetria">
+        <path d={area} fill="currentColor" opacity={0.08} />
+        {segmentos.map((s) => (
+          <path key={s.dIni} d={linha(s.dIni, s.dIni + s.comp)} fill="none" stroke={corClasse(s.classeIdx)} strokeWidth={2.5} />
+        ))}
+        <text x={2} y={9} fontSize={9} fill="currentColor" opacity={0.6}>
+          {Math.round(max)} m
+        </text>
+        <text x={2} y={A - 3} fontSize={9} fill="currentColor" opacity={0.6}>
+          {Math.round(min)} m
+        </text>
+        {Array.from({ length: Math.floor(dMax / 5000) }, (_, i) => (i + 1) * 5000).map((d) => (
+          <text key={d} x={x(d)} y={A + 12} fontSize={9} fill="currentColor" opacity={0.6} textAnchor="middle">
+            {d / 1000} km
+          </text>
+        ))}
+      </svg>
+    </figure>
+  );
+}

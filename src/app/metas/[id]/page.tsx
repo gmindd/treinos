@@ -4,11 +4,13 @@ import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { meta } from "@/db/schema";
-import type { PrevisaoBtt } from "@/lib/analysis/previsao-btt";
+import type { PrevisaoBtt, Zona } from "@/lib/analysis/previsao-btt";
 import type { PrevisaoCorrida } from "@/lib/analysis/previsao-corrida";
 import { formatarData, formatarDistancia, formatarDuracao, formatarNumero } from "@/lib/formato";
 import { estadoValidacao, lerBacktests, previsaoDetalhada } from "@/lib/previsao/consultas";
-import { MapaPercurso } from "../../graficos";
+import { corClasse, GraficoAltimetria, MapaPercurso } from "../../graficos";
+import { removerMeta } from "../actions";
+import { EditarMeta } from "../formularios";
 
 const dur = (s: number | null | undefined) => (s != null && Number.isFinite(s) ? formatarDuracao(s) : "—");
 const pct = (x: number | null | undefined, casas = 0) => (x != null && Number.isFinite(x) ? `${formatarNumero(x * 100, casas)}%` : "—");
@@ -109,10 +111,113 @@ function corSegmento(previsto: number | null, necessario: number | null) {
   return r <= 1 ? "#16a34a" : r <= 1.1 ? "#d97706" : "#dc2626";
 }
 
-function Btt({ r }: { r: PrevisaoBtt & { referencia?: { nome: string; data: string }; mapa?: ([number | null, number | null] | null)[] } }) {
+/** Diferença com sinal: "+1:05" (folga) ou "−2:10" (perdes), a verde ou a vermelho. */
+function Diferenca({ s }: { s: number | null }) {
+  if (s == null || !Number.isFinite(s)) return <>—</>;
+  const ganhas = s >= 0;
+  return (
+    <span className={ganhas ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}>
+      {ganhas ? "+" : "−"}
+      {formatarDuracao(Math.abs(s))}
+    </span>
+  );
+}
+
+function TabelaZonas({ zonas, titulo, cor }: { zonas: Zona[]; titulo: string; cor?: (z: Zona, i: number) => string }) {
+  const temRef = zonas.some((z) => z.referenciaS != null);
+  return (
+    <table className="w-full text-xs">
+      <thead className="text-left text-zinc-500">
+        <tr>
+          <th className="py-1 pr-1 font-normal">{titulo}</th>
+          <th className="pr-1 font-normal">km</th>
+          {temRef && <th className="pr-1 font-normal">Ref.</th>}
+          <th className="pr-1 font-normal">Hoje</th>
+          <th className="pr-1 font-normal">Meta</th>
+          <th className="font-normal">Ganhas/perdes</th>
+        </tr>
+      </thead>
+      <tbody>
+        {zonas.map((z, i) => (
+          <tr key={z.nome} className="border-t border-zinc-200 dark:border-zinc-800">
+            <td className="whitespace-nowrap py-1 pr-1">
+              {cor && <span style={{ color: cor(z, i) }}>■ </span>}
+              {z.nome}
+            </td>
+            <td className="pr-1">{formatarNumero(z.comp / 1000, 1)}</td>
+            {temRef && <td className="whitespace-nowrap pr-1">{dur(z.referenciaS)}</td>}
+            <td className="whitespace-nowrap pr-1">{dur(z.previstoS)}</td>
+            <td className="whitespace-nowrap pr-1">{dur(z.necessarioS)}</td>
+            <td className="whitespace-nowrap">
+              <Diferenca s={z.necessarioS != null && z.previstoS != null ? z.necessarioS - z.previstoS : null} />
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+type DetalhesBtt = PrevisaoBtt & {
+  referencia?: { nome: string; data: string };
+  gpx?: { temTempo: boolean; temFc: boolean; data: string | null };
+  mapa?: ([number | null, number | null] | null)[];
+  altimetria?: [number, number][];
+  zonas?: Zona[];
+  setores?: Zona[];
+};
+
+function Btt({ r }: { r: DetalhesBtt }) {
   const nivel = ["mesmo troço", "mesma classe", "classes vizinhas", "física (B)"];
+  const comMeta = r.setores?.filter((z) => z.necessarioS != null && z.previstoS != null) ?? [];
+  const pior = [...comMeta].sort((a, b) => (b.previstoS! - b.necessarioS!) / b.necessarioS! - (a.previstoS! - a.necessarioS!) / a.necessarioS!)[0];
+  const semRef = r.gpx && !r.gpx.temTempo;
   return (
     <>
+      {r.altimetria && (
+        <section className="flex flex-col gap-1">
+          <h2 className="text-lg font-medium">Altimetria</h2>
+          <GraficoAltimetria pontos={r.altimetria} segmentos={r.segmentos} />
+        </section>
+      )}
+      {r.setores && (
+        <section className="flex flex-col gap-2">
+          <h2 className="text-lg font-medium">Onde ganhas e onde perdes</h2>
+          <p className="text-xs text-zinc-600 dark:text-zinc-400">
+            &quot;Hoje&quot; é o tempo previsto na forma atual; &quot;Meta&quot; o que precisas para o tempo-alvo.{" "}
+            {semRef
+              ? "O GPX não tem horas, por isso a meta é distribuída na proporção do previsto (todos os setores ficam com a mesma percentagem)."
+              : "A meta mantém as descidas da referência e distribui a poupança pelo plano e pelas subidas."}{" "}
+            Verde = folga, vermelho = tempo a recuperar.
+          </p>
+          <TabelaZonas zonas={r.setores} titulo="Setor" />
+          {pior && !semRef && pior.previstoS! > pior.necessarioS! && (
+            <p className="text-sm">
+              Onde estás mais longe da meta: <strong>{pior.nome.toLowerCase()}</strong> (faltam {dur(pior.previstoS! - pior.necessarioS!)},{" "}
+              {pct((pior.previstoS! - pior.necessarioS!) / pior.necessarioS!)} acima do necessário).
+            </p>
+          )}
+          {r.setores.some((z) => z.referenciaS != null) && (
+            <p className="text-xs text-zinc-600 dark:text-zinc-400">
+              Face à referência:{" "}
+              {r.setores
+                .filter((z) => z.referenciaS != null && z.previstoS != null)
+                .map((z) => {
+                  const d = z.referenciaS! - z.previstoS!;
+                  return `${z.nome.toLowerCase()} ${d >= 0 ? "ganhas" : "perdes"} ${dur(Math.abs(d))}`;
+                })
+                .join(" · ")}
+              .
+            </p>
+          )}
+        </section>
+      )}
+      {r.zonas && (
+        <section className="flex flex-col gap-2">
+          <h2 className="text-lg font-medium">Tempo por zona de declive</h2>
+          <TabelaZonas zonas={r.zonas} titulo="Declive" cor={(z) => corClasse(r.segmentos.find((s) => s.classe === z.nome)?.classeIdx ?? 4)} />
+        </section>
+      )}
       <section className="flex flex-col gap-2">
         <h2 className="text-lg font-medium">Cenários de pacing</h2>
         <table className="w-full text-sm">
@@ -143,7 +248,8 @@ function Btt({ r }: { r: PrevisaoBtt & { referencia?: { nome: string; data: stri
         </p>
         {r.progresso != null && (
           <p className="text-sm">
-            Progresso desde {r.referencia ? formatarData(r.referencia.data) : "a referência"}: <strong>{pct(r.progresso)}</strong> do caminho até à meta.
+            Progresso desde {r.referencia ? formatarData(r.referencia.data) : r.gpx?.data ? formatarData(r.gpx.data) : "o GPX"}: <strong>{pct(r.progresso)}</strong> do
+            caminho até à meta.
           </p>
         )}
         {r.marco && (
@@ -250,11 +356,21 @@ export default async function PaginaMeta({ params }: PageProps<"/metas/[id]">) {
           </div>
         </dl>
       )}
+      <details className="rounded-xl border border-zinc-200 p-3 dark:border-zinc-800">
+        <summary className="cursor-pointer text-sm">Editar meta</summary>
+        <div className="mt-3 flex flex-col gap-3">
+          <EditarMeta id={m.id} nome={m.nome} alvo={formatarDuracao(m.tempoAlvoS)} data={formatarData(m.dataProva)} />
+          <form action={removerMeta}>
+            <input type="hidden" name="id" value={m.id} />
+            <button className="text-sm text-red-700 underline dark:text-red-400">{m.percursoId ? "Apagar meta e GPX" : "Retirar do painel"}</button>
+          </form>
+        </div>
+      </details>
       <Lista titulo="O que falta" itens={det.falta ?? []} />
       <Lista titulo="Avisos" itens={det.avisos ?? []} aviso />
       {snap?.suficiente && det.tipo === "corrida" && <Corrida r={det as unknown as PrevisaoCorrida} alvoS={m.tempoAlvoS} />}
-      {snap?.suficiente && det.tipo === "btt" && <Btt r={det as unknown as PrevisaoBtt} />}
-      {!snap && <p className="text-sm">Ainda não há previsão calculada.</p>}
+      {snap?.suficiente && det.tipo === "btt" && <Btt r={det as unknown as DetalhesBtt} />}
+      {!snap && <p className="text-sm">A calcular a previsão… recarrega a página dentro de alguns segundos.</p>}
     </main>
   );
 }

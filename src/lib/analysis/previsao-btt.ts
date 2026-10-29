@@ -541,12 +541,17 @@ export function preverBtt(prep: Preparacao, zwift: SessaoZwift[], o: OpcoesPrevi
     const desc = prep.alvo.segmentos.reduce((t, s, k) => t + (s.declive < -0.01 ? refSeg[k] : 0), 0);
     const k = ref.tempoS - desc > 0 ? (o.alvoS - desc) / (ref.tempoS - desc) : 1;
     necessario = prep.alvo.segmentos.map((s, i) => (s.declive < -0.01 ? refSeg[i] : refSeg[i] * k));
+  } else if (o.alvoS != null && principal.hoje.tempoS != null) {
+    // Sem tempos de referência (GPX sem horas): a meta distribui-se na proporção do previsto.
+    const k = o.alvoS / (principal.hoje.tempoS * fator);
+    necessario = principal.hoje.porSeg.map((x) => (x.t != null ? x.t * fator * k : null));
   }
   const segmentos = prep.alvo.segmentos.map((s, k) => ({
     dIni: s.dIni,
     comp: s.comp,
     declive: s.declive,
     classe: rotuloClasse(s.classe, p.classes),
+    classeIdx: s.classe,
     nivel: a.porSeg[k].nivel,
     referenciaS: refSeg ? refSeg[k] : null,
     previstoS: S(principal.hoje.porSeg[k].t),
@@ -568,7 +573,8 @@ export function preverBtt(prep: Preparacao, zwift: SessaoZwift[], o: OpcoesPrevi
     : null;
 
   const progresso =
-    ref && o.alvoS != null && principal.hoje.tempoS != null && ref.tempoS !== o.alvoS
+    // Só faz sentido quando a meta é mais rápida do que a referência.
+    ref && o.alvoS != null && principal.hoje.tempoS != null && ref.tempoS > o.alvoS
       ? (ref.tempoS - principal.hoje.tempoS * fator) / (ref.tempoS - o.alvoS)
       : null;
 
@@ -603,6 +609,58 @@ export function preverBtt(prep: Preparacao, zwift: SessaoZwift[], o: OpcoesPrevi
 }
 
 export type PrevisaoBtt = ReturnType<typeof preverBtt>;
+
+type LinhaSegmento = {
+  comp: number;
+  declive: number;
+  classe: string;
+  classeIdx: number;
+  referenciaS: number | null;
+  previstoS: number | null;
+  necessarioS: number | null;
+};
+
+export type Zona = {
+  nome: string;
+  comp: number;
+  desnivel: number;
+  segmentos: number;
+  referenciaS: number | null;
+  previstoS: number | null;
+  necessarioS: number | null;
+};
+
+function somar(nome: string, segs: LinhaSegmento[]): Zona {
+  const soma = (f: (s: LinhaSegmento) => number | null) =>
+    segs.every((s) => f(s) != null) ? segs.reduce((t, s) => t + (f(s) as number), 0) : null;
+  return {
+    nome,
+    comp: segs.reduce((t, s) => t + s.comp, 0),
+    desnivel: segs.reduce((t, s) => t + s.declive * s.comp, 0),
+    segmentos: segs.length,
+    referenciaS: soma((s) => s.referenciaS),
+    previstoS: soma((s) => s.previstoS),
+    necessarioS: soma((s) => s.necessarioS),
+  };
+}
+
+/**
+ * Tempos por zona de declive (as classes do §7.2, da descida mais forte para a subida mais
+ * forte) e por setor (subidas > +1%, plano entre −1 e +1%, descidas < −1%).
+ */
+export function resumoPorZona(segmentos: LinhaSegmento[]) {
+  const classes = [...new Set(segmentos.map((s) => s.classeIdx))].sort((a, b) => a - b);
+  const zonas = classes.map((c) => {
+    const segs = segmentos.filter((s) => s.classeIdx === c);
+    return somar(segs[0].classe, segs);
+  });
+  const setores = [
+    somar("Subidas", segmentos.filter((s) => s.declive > 0.01)),
+    somar("Plano", segmentos.filter((s) => s.declive >= -0.01 && s.declive <= 0.01)),
+    somar("Descidas", segmentos.filter((s) => s.declive < -0.01)),
+  ].filter((z) => z.segmentos > 0);
+  return { zonas, setores };
+}
 
 /**
  * Backtest (aceitação da fase 4): prevê uma prova real só com dados anteriores a `ate`,
