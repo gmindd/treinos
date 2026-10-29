@@ -92,6 +92,7 @@ PWA instalável. Gráficos legíveis em 380 px de largura.
 - Previsões (`src/lib/analysis/previsao-*.ts`, `btt.ts`, `estatistica.ts`; job `previsao-recalcular` em `src/lib/previsao/calcular.ts`, que corre depois de cada recálculo):
   - Corrida (§7.1): modelo A (Huber v = a + b·FC + c·t, 6 semanas) + modelo B (melhores esforços GAP ≥ 3 km, Riegel), bootstrap por sessão, durabilidade e projeção com rendimentos decrescentes.
   - BTT (§7.2): grelha de 25 m, segmentos por declive, estimador A (mesmo troço → classe → vizinhas → B) e B (física com Crr calibrado e relação FC → W do Zwift, que precisa de ≥ 5 janelas e r² ≥ 0,3).
+  - Fator de terreno (`btt.grupos_sinuosidade`, 3; 1 = desligado): dentro de cada classe de declive, A e B usam só os segmentos do mesmo terço de sinuosidade (graus de mudança de direção por 100 m; limites = quantis dos dados).
   - O "tempo em movimento" do resumo do Strava (aparelho) é maior do que o dos streams (Rota +7%, 3 Cumes +11%, Trofa +17%). Os motores trabalham em segundos dos streams; as metas convertem para segundos do Strava com o fator da edição de referência e os backtests comparam com o tempo da prova medido nos streams.
   - Snapshot de hoje (com bootstrap) e semanais desde 02/03/2026 (só valor central) em `previsao_snapshot`; backtests em `sistema_estado` (`previsao.backtests`), página /backtests.
   - `scripts/backtest-local.ts` corre os backtests com streams reais em `.data/strava-real` (descarregados pelo MCP do Strava, fora do repositório).

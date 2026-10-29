@@ -128,6 +128,7 @@ export const parametrosIniciais: {
     ],
     origem: "dados",
   },
+  { chave: "btt.grupos_sinuosidade", grupo: "btt", descricao: "Fator de terreno: grupos de sinuosidade (quantis dos dados) dentro de cada classe de declive; 1 = desligado", valor: 3, origem: "heuristica" },
   { chave: "btt.divergencia_ab", grupo: "btt", descricao: "Divergência A/B a partir da qual se destaca", unidade: "fração", valor: 0.05, origem: "heuristica" },
 
   // Zwift (§8)

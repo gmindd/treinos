@@ -73,6 +73,7 @@ const pb: ParametrosBtt = {
   bootstrapN: 20,
   marcoSubidaMin: 12,
   declSubidaMin: 0.05,
+  gruposSinuosidade: 3,
 };
 
 describe("estatística", () => {

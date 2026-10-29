@@ -80,6 +80,7 @@ export function parametrosBtt(p: Parametros, fcZ1Max: number): ParametrosBtt {
     bootstrapN: num(p, "previsao.bootstrap_n", 200),
     marcoSubidaMin: num(p, "btt.marco_subida_min", 12),
     declSubidaMin: num(p, "btt.declive_subida_min", 5) / 100,
+    gruposSinuosidade: num(p, "btt.grupos_sinuosidade", 3),
   };
 }
 

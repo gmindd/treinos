@@ -151,7 +151,37 @@ export type Segmento = {
   /** Fração do tempo do segmento com FC acima do limiar. */
   fracAcima: number;
   fracAPe: number;
+  /** Sinuosidade: mudança de direção acumulada (graus por 100 m); null sem GPS. */
+  sinuosidade: number | null;
 };
+
+/**
+ * Sinuosidade de um troço: soma das mudanças de direção entre passos da grelha, em graus
+ * por 100 m. Estradas e caminhos largos dão valores baixos; trilhos estreitos e técnicos,
+ * altos (proxy do terreno, que a inclinação sozinha não capta).
+ */
+export function sinuosidadeTroco(g: Grelha, i0: number, i1: number): number | null {
+  const lat0 = g.lat[i0];
+  if (lat0 == null) return null;
+  const cos = Math.cos((lat0 * Math.PI) / 180);
+  let anterior: number | null = null;
+  let soma = 0;
+  let n = 0;
+  for (let k = i0; k < i1; k++) {
+    const [a, b, c, d] = [g.lat[k], g.lon[k], g.lat[k + 1], g.lon[k + 1]];
+    if (a == null || b == null || c == null || d == null) continue;
+    const rumo = (Math.atan2((d - b) * cos, c - a) * 180) / Math.PI;
+    if (anterior != null) {
+      let delta = Math.abs(rumo - anterior);
+      if (delta > 180) delta = 360 - delta;
+      soma += delta;
+      n++;
+    }
+    anterior = rumo;
+  }
+  const comp = g.d[i1] - g.d[i0];
+  return n >= 2 && comp > 0 ? (soma / comp) * 100 : null;
+}
 
 /** Estatísticas de um troço [i0, i1] de uma grelha. */
 export function estatisticasTroco(g: Grelha, i0: number, i1: number, limiarFc: number) {
@@ -226,7 +256,14 @@ export function segmentar(g: Grelha, limitesPct: number[], minM: number, limiarF
   blocos = juntos;
   return blocos.map((b) => {
     const e = estatisticasTroco(g, b.i0, b.i1, limiarFc);
-    return { i0: b.i0, i1: b.i1, dIni: g.d[b.i0], ...e, classe: classeDeclive(e.declive, limitesPct) };
+    return {
+      i0: b.i0,
+      i1: b.i1,
+      dIni: g.d[b.i0],
+      ...e,
+      classe: classeDeclive(e.declive, limitesPct),
+      sinuosidade: sinuosidadeTroco(g, b.i0, b.i1),
+    };
   });
 }
 

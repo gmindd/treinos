@@ -14,7 +14,7 @@ import {
   type Segmento,
   type StreamsBtt,
 } from "./btt";
-import { diasDesde, ganhoProjetado, pesoRecencia, reamostragens, resumoTempos } from "./estatistica";
+import { diasDesde, ganhoProjetado, percentil, pesoRecencia, reamostragens, resumoTempos } from "./estatistica";
 import { mediana } from "./series";
 import { relacaoFcPotencia, tendencia, type JanelaPotencia } from "./zwift";
 
@@ -46,6 +46,8 @@ export type ParametrosBtt = OpcoesGrelha & {
   bootstrapN: number;
   marcoSubidaMin: number;
   declSubidaMin: number;
+  /** Grupos de sinuosidade dentro de cada classe de declive (1 = sem fator de terreno). */
+  gruposSinuosidade: number;
 };
 
 const G = 9.81;
@@ -110,7 +112,7 @@ function trocoValido(
 // Preparação (independente da data de corte)
 // ---------------------------------------------------------------------------
 
-type Contrib = { volta: number; pace: number; peso: number; fc: number | null };
+type Contrib = { volta: number; pace: number; peso: number; fc: number | null; sin: number | null };
 
 export type Preparacao = {
   alvo: VoltaBtt;
@@ -128,7 +130,9 @@ export function preparar(alvo: VoltaBtt, voltas: VoltaBtt[], p: ParametrosBtt): 
   const porClasse: Contrib[][] = Array.from({ length: p.classes.length + 1 }, () => []);
   usaveis.forEach((v, iv) => {
     for (const s of v.segmentos) {
-      if (trocoValido(s, s.declive, v, p)) porClasse[s.classe].push({ volta: iv, pace: s.tempoMovS / s.comp, peso: s.comp, fc: s.fcMedia });
+      if (trocoValido(s, s.declive, v, p)) {
+        porClasse[s.classe].push({ volta: iv, pace: s.tempoMovS / s.comp, peso: s.comp, fc: s.fcMedia, sin: s.sinuosidade });
+      }
     }
     if (!v.temGps || !alvo.temGps) return;
     const indice = indiceEspacial(v.grelha, p.bufferM, latRef);
@@ -137,11 +141,34 @@ export function preparar(alvo: VoltaBtt, voltas: VoltaBtt[], p: ParametrosBtt): 
       if (!c) return;
       const t = estatisticasTroco(v.grelha, c.j0, c.j1, p.fcEsforcoLimiar);
       if (t.comp > 0 && trocoValido(t, sa.declive, v, p)) {
-        mesmoTroco[k].push({ volta: iv, pace: t.tempoMovS / t.comp, peso: t.comp * p.pesoMesmoTroco, fc: t.fcMedia });
+        mesmoTroco[k].push({ volta: iv, pace: t.tempoMovS / t.comp, peso: t.comp * p.pesoMesmoTroco, fc: t.fcMedia, sin: null });
       }
     });
   });
   return { alvo, voltas: usaveis, mesmoTroco, porClasse };
+}
+
+// ---------------------------------------------------------------------------
+// Fator de terreno: grupos de sinuosidade
+// ---------------------------------------------------------------------------
+
+/**
+ * Limites dos grupos de sinuosidade: quantis dos segmentos válidos das voltas anteriores a
+ * `ate` (com 3 grupos, cada um tem um terço dos segmentos). Vêm dos dados, não de afinação.
+ */
+function limitesSinuosidade(prep: Preparacao, ate: string, p: ParametrosBtt): number[] {
+  if (p.gruposSinuosidade <= 1) return [];
+  const xs = prep.porClasse
+    .flat()
+    .filter((c) => c.sin != null && prep.voltas[c.volta].data < ate)
+    .map((c) => c.sin as number);
+  if (xs.length < 3 * p.gruposSinuosidade) return [];
+  return Array.from({ length: p.gruposSinuosidade - 1 }, (_, i) => percentil(xs, (i + 1) / p.gruposSinuosidade));
+}
+
+function grupoSinuosidade(sin: number | null, limites: number[]): number | null {
+  if (sin == null || limites.length === 0) return null;
+  return limites.filter((l) => sin > l).length;
 }
 
 // ---------------------------------------------------------------------------
@@ -150,7 +177,7 @@ export function preparar(alvo: VoltaBtt, voltas: VoltaBtt[], p: ParametrosBtt): 
 
 type SegA = { v: number | null; nivel: 1 | 2 | 3 | 4; fc: number | null; n: number };
 
-function estimadorA(prep: Preparacao, ate: string, p: ParametrosBtt, contagens?: number[]) {
+function estimadorA(prep: Preparacao, ate: string, p: ParametrosBtt, limites: number[], contagens?: number[]) {
   const peso = (c: Contrib) => {
     const v = prep.voltas[c.volta];
     if (v.data >= ate) return 0;
@@ -175,12 +202,20 @@ function estimadorA(prep: Preparacao, ate: string, p: ParametrosBtt, contagens?:
     }
     return sw > 0 ? { v: sw / sp, fc: swf > 0 ? sf / swf : null, n, sw } : null;
   };
+  // Dentro de uma classe de declive, só os segmentos do mesmo grupo de sinuosidade do
+  // segmento-alvo; se o grupo não tiver dados, a classe toda.
+  const doGrupo = (cs: Contrib[], g: number | null) => {
+    if (g == null) return cs;
+    const f = cs.filter((c) => grupoSinuosidade(c.sin, limites) === g);
+    return juntar(f) ? f : cs;
+  };
   const porSeg: SegA[] = prep.alvo.segmentos.map((s, k) => {
+    const g = grupoSinuosidade(s.sinuosidade, limites);
     const c1 = juntar(prep.mesmoTroco[k]);
-    const c12 = juntar([...prep.mesmoTroco[k], ...prep.porClasse[s.classe]]);
+    const c12 = juntar([...prep.mesmoTroco[k], ...doGrupo(prep.porClasse[s.classe], g)]);
     if (c12) return { v: c12.v, nivel: c1 ? 1 : 2, fc: c12.fc, n: c12.n };
     for (const off of [1, 2]) {
-      const viz = juntar([...(prep.porClasse[s.classe - off] ?? []), ...(prep.porClasse[s.classe + off] ?? [])]);
+      const viz = juntar(doGrupo([...(prep.porClasse[s.classe - off] ?? []), ...(prep.porClasse[s.classe + off] ?? [])], g));
       if (viz) return { v: viz.v, nivel: 3, fc: viz.fc, n: viz.n };
     }
     return { v: null, nivel: 4, fc: null, n: 0 };
@@ -263,12 +298,13 @@ function calibrar(
   refIds: number[],
   massa: (data: string) => number,
   p: ParametrosBtt,
+  limites: number[],
   contagensVoltas?: number[],
   contagensZwift?: number[],
 ) {
   const doPercurso = prep.voltas.map((v, i) => ({ v, i })).filter(({ v }) => refIds.includes(v.id) && v.data < ate);
   const fonte = doPercurso.length ? doPercurso : prep.voltas.map((v, i) => ({ v, i })).filter(({ v }) => v.data < ate);
-  const porClasse: { x: number; w: number }[][] = Array.from({ length: p.classes.length + 1 }, () => []);
+  const porClasse: { x: number; w: number; g: number | null }[][] = Array.from({ length: p.classes.length + 1 }, () => []);
   const cache = new Map<string, Relacao | null>();
   let usadas = 0;
   for (const { v, i } of fonte) {
@@ -284,7 +320,7 @@ function calibrar(
       if (s.v == null || s.fcMedia == null) continue;
       if (!doPercurso.length && !trocoValido(s, s.declive, v, p)) continue;
       const crr = crrEfetivo(potencia(rel, s.fcMedia), s.v, s.declive, m, p);
-      porClasse[s.classe].push({ x: Math.max(-0.3, Math.min(0.8, crr)), w: s.comp * rec * c });
+      porClasse[s.classe].push({ x: Math.max(-0.3, Math.min(0.8, crr)), w: s.comp * rec * c, g: grupoSinuosidade(s.sinuosidade, limites) });
     }
   }
   const crr = porClasse.map((xs) => medianaPonderada(xs));
@@ -297,7 +333,11 @@ function calibrar(
     }
     return null;
   });
-  return { crr: preenchido, fonte: doPercurso.length ? "percurso" : "voltas", voltas: usadas };
+  // Crr por classe e grupo de sinuosidade (sem dados no grupo: o da classe).
+  const porGrupo = porClasse.map((xs, c) =>
+    Array.from({ length: Math.max(1, limites.length + 1) }, (_, g) => medianaPonderada(xs.filter((x) => x.g === g)) ?? preenchido[c]),
+  );
+  return { crr: preenchido, porGrupo, fonte: doPercurso.length ? "percurso" : "voltas", voltas: usadas };
 }
 
 // ---------------------------------------------------------------------------
@@ -331,7 +371,8 @@ function calcularCenario(
   prep: Preparacao,
   a: ReturnType<typeof estimadorA>,
   rel: Relacao | null,
-  crr: (number | null)[],
+  crr: (number | null)[][],
+  limites: number[],
   massa: number,
   perfil: Perfil,
   multP: number,
@@ -339,7 +380,7 @@ function calcularCenario(
 ): Calculo {
   const segs = prep.alvo.segmentos;
   const vB = (k: number, fc: number, mult = multP) => {
-    const c = crr[segs[k].classe];
+    const c = crr[segs[k].classe][grupoSinuosidade(segs[k].sinuosidade, limites) ?? 0] ?? crr[segs[k].classe][0];
     if (!rel || c == null) return null;
     return velocidadeFisica(potencia(rel, fc) * mult, segs[k].declive, c, massa, p);
   };
@@ -445,10 +486,11 @@ export type OpcoesPrevisaoBtt = {
 export function preverBtt(prep: Preparacao, zwift: SessaoZwift[], o: OpcoesPrevisaoBtt, p: ParametrosBtt) {
   const falta: string[] = [];
   const avisos: string[] = [];
-  const a = estimadorA(prep, o.ate, p);
+  const limites = limitesSinuosidade(prep, o.ate, p);
+  const a = estimadorA(prep, o.ate, p, limites);
   const rel = relacaoAte(zwift, o.ate, p.zwiftSemanas);
   if (!rel) falta.push(`Estimador B: sem relação FC → W do Zwift nas ${p.zwiftSemanas} semanas anteriores.`);
-  const cal = calibrar(prep, zwift, o.ate, o.refIds, o.massa, p);
+  const cal = calibrar(prep, zwift, o.ate, o.refIds, o.massa, p, limites);
   if (rel && cal.crr.every((x) => x == null)) falta.push("Estimador B: nenhuma volta para calibrar o Crr (sem Zwift na altura).");
   const massa = o.massa(o.ate);
   const ganho = ganhoPotencia(zwift, o.ate, o.dataProva, p);
@@ -458,8 +500,8 @@ export function preverBtt(prep: Preparacao, zwift: SessaoZwift[], o: OpcoesPrevi
   const S = (x: number | null | undefined) => (x == null ? null : x * fator);
 
   const cenarios = o.perfis.map((perfil) => {
-    const hoje = calcularCenario(prep, a, rel, cal.crr, massa, perfil, 1, p);
-    const proj = calcularCenario(prep, a, rel, cal.crr, massa, perfil, 1 + ganho.central, p);
+    const hoje = calcularCenario(prep, a, rel, cal.porGrupo, limites, massa, perfil, 1, p);
+    const proj = calcularCenario(prep, a, rel, cal.porGrupo, limites, massa, perfil, 1 + ganho.central, p);
     return { nome: perfil.nome, hoje, projecao: proj };
   });
   const principal = cenarios[0];
@@ -479,10 +521,10 @@ export function preverBtt(prep: Preparacao, zwift: SessaoZwift[], o: OpcoesPrevi
     const cz = reamostragens(zwift.length, p.bootstrapN, 11);
     const xs: number[] = [];
     for (let i = 0; i < p.bootstrapN; i++) {
-      const aa = estimadorA(prep, o.ate, p, cv[i]);
+      const aa = estimadorA(prep, o.ate, p, limites, cv[i]);
       const rr = relacaoAte(zwift, o.ate, p.zwiftSemanas, cz[i]);
-      const cc = calibrar(prep, zwift, o.ate, o.refIds, o.massa, p, cv[i], cz[i]);
-      const r = calcularCenario(prep, aa, rr, cc.crr, massa, o.perfis[0], 1, p);
+      const cc = calibrar(prep, zwift, o.ate, o.refIds, o.massa, p, limites, cv[i], cz[i]);
+      const r = calcularCenario(prep, aa, rr, cc.porGrupo, limites, massa, o.perfis[0], 1, p);
       if (r.tempoS != null) xs.push(r.tempoS * fator);
     }
     const h = resumoTempos(xs, o.alvoS);
@@ -542,6 +584,7 @@ export function preverBtt(prep: Preparacao, zwift: SessaoZwift[], o: OpcoesPrevi
     massaKg: massa,
     ganho,
     fatorMovimento: fator,
+    terreno: { limitesSinuosidade: limites },
     cenarios: cenarios.map((c) => ({
       nome: c.nome,
       hojeS: S(c.hoje.tempoS),
@@ -605,6 +648,7 @@ export function backtestBtt(
     falta: r.falta,
     calibracao: r.calibracao,
     relacao: r.relacao,
+    terreno: r.terreno,
     segmentos: r.segmentos.map((s, k) => ({
       dIni: s.dIni,
       comp: s.comp,
