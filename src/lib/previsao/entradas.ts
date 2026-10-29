@@ -81,6 +81,11 @@ export function parametrosBtt(p: Parametros, fcZ1Max: number): ParametrosBtt {
     marcoSubidaMin: num(p, "btt.marco_subida_min", 12),
     declSubidaMin: num(p, "btt.declive_subida_min", 5) / 100,
     gruposSinuosidade: num(p, "btt.grupos_sinuosidade", 3),
+    dPlusPorKmEsforco: num(p, "btt.dplus_por_km_esforco", 100),
+    razaoDistancia: num(p, "btt.razao_distancia", 1.5),
+    desvioPosicao: num(p, "btt.desvio_posicao", 0),
+    incertezaPlanoDescida: num(p, "btt.incerteza_terreno_plano_descida", 0.1),
+    incertezaSubida: num(p, "btt.incerteza_terreno_subida", 0.02),
   };
 }
 

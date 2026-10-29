@@ -18,7 +18,8 @@ import {
 const DIR = path.join(process.cwd(), ".data", "strava-real");
 const MOVIMENTO_STRAVA: Record<string, number> = { "18330245057": 8263, "20350045096": 11081, "20633496725": 11374 };
 
-const p = new Map<string, unknown>();
+// Parâmetros diferentes dos de omissão: PARAMS='{"btt.razao_distancia":0}' npx tsx …
+const p = new Map<string, unknown>(Object.entries(JSON.parse(process.env.PARAMS ?? "{}")));
 const pc = parametrosCorrida(p);
 const pb = parametrosBtt(p, 124);
 const massa = () => 79 + 12.5 + 6;
@@ -79,7 +80,7 @@ for (const id of [18330245057, 20350045096, 20633496725]) {
   const alvo = voltas.find((v) => v.id === id)!;
   const r = backtestBtt(alvo, voltas, zwift, alvo.data, massa, pb);
   console.log(
-    `${r.prova.data} ${r.prova.nome}: real ${dur(r.realS)} nos streams (${dur(r.realStravaS)} no Strava, fator ${r.fatorMovimento?.toFixed(3)}) · previsto ${dur(r.previstoS)} (erro ${pct(r.erro)}) · A ${dur(r.aS)} (${pct(r.erroA)}) · B ${dur(r.bS)} (${pct(r.erroB)}) · cobertura ${pct(r.cobertura)} · níveis ${r.niveis.join("/")}`,
+    `${r.prova.data} ${r.prova.nome}: real ${dur(r.realS)} nos streams (${dur(r.realStravaS)} no Strava, fator ${r.fatorMovimento?.toFixed(3)}) · previsto ${dur(r.previstoS)} (erro ${pct(r.erro)}) · A ${dur(r.aS)} (${pct(r.erroA)}) · B ${dur(r.bS)} (${pct(r.erroB)}) · cobertura ${pct(r.cobertura)} · níveis ${r.niveis.join("/")} · intervalo 80% ${dur(r.p10S)}–${dur(r.p90S)} ${r.dentroIntervalo ? "(real dentro)" : "(real fora)"}`,
   );
   console.log(`  calibração: ${r.calibracao.fonte}, ${r.calibracao.voltas} voltas; relação FC→W: ${r.relacao ? `FC = ${r.relacao.alfa.toFixed(1)} + ${r.relacao.beta.toFixed(3)}·P (n ${r.relacao.n})` : "—"}`);
   if (r.falta.length) console.log("  falta:", r.falta.join(" | "));

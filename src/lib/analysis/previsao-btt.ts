@@ -14,7 +14,7 @@ import {
   type Segmento,
   type StreamsBtt,
 } from "./btt";
-import { diasDesde, ganhoProjetado, percentil, pesoRecencia, reamostragens, resumoTempos } from "./estatistica";
+import { diasDesde, ganhoProjetado, gerador, percentil, pesoRecencia, reamostragens, resumoTempos } from "./estatistica";
 import { mediana } from "./series";
 import { relacaoFcPotencia, tendencia, type JanelaPotencia } from "./zwift";
 
@@ -48,6 +48,19 @@ export type ParametrosBtt = OpcoesGrelha & {
   declSubidaMin: number;
   /** Grupos de sinuosidade dentro de cada classe de declive (1 = sem fator de terreno). */
   gruposSinuosidade: number;
+  /**
+   * Peso pela distância da volta face à prova (em km-esforço): gaussiana no logaritmo da
+   * razão; com 1,5, uma volta 1,5× mais longa (ou mais curta) pesa 61%, 2× pesa 23%.
+   */
+  razaoDistancia: number;
+  /** Peso pela posição no esforço: desvio-padrão do km-esforço já feito, em fração da prova. */
+  desvioPosicao: number;
+  /**
+   * Incerteza do terreno (desvio-padrão relativo) nos segmentos que nunca fizeste: o piso
+   * não se vê no GPS. Nos backtests o plano e as descidas erraram ±10% e as subidas ±2%.
+   */
+  incertezaPlanoDescida: number;
+  incertezaSubida: number;
 };
 
 const G = 9.81;
@@ -112,7 +125,8 @@ function trocoValido(
 // Preparação (independente da data de corte)
 // ---------------------------------------------------------------------------
 
-type Contrib = { volta: number; pace: number; peso: number; fc: number | null; sin: number | null };
+/** `pos`: km-esforço já feito na volta no início do troço (cansaço). */
+type Contrib = { volta: number; pace: number; peso: number; fc: number | null; sin: number | null; pos: number };
 
 export type Preparacao = {
   alvo: VoltaBtt;
@@ -131,7 +145,7 @@ export function preparar(alvo: VoltaBtt, voltas: VoltaBtt[], p: ParametrosBtt): 
   usaveis.forEach((v, iv) => {
     for (const s of v.segmentos) {
       if (trocoValido(s, s.declive, v, p)) {
-        porClasse[s.classe].push({ volta: iv, pace: s.tempoMovS / s.comp, peso: s.comp, fc: s.fcMedia, sin: s.sinuosidade });
+        porClasse[s.classe].push({ volta: iv, pace: s.tempoMovS / s.comp, peso: s.comp, fc: s.fcMedia, sin: s.sinuosidade, pos: s.kmEsforcoIni });
       }
     }
     if (!v.temGps || !alvo.temGps) return;
@@ -141,7 +155,14 @@ export function preparar(alvo: VoltaBtt, voltas: VoltaBtt[], p: ParametrosBtt): 
       if (!c) return;
       const t = estatisticasTroco(v.grelha, c.j0, c.j1, p.fcEsforcoLimiar);
       if (t.comp > 0 && trocoValido(t, sa.declive, v, p)) {
-        mesmoTroco[k].push({ volta: iv, pace: t.tempoMovS / t.comp, peso: t.comp * p.pesoMesmoTroco, fc: t.fcMedia, sin: null });
+        mesmoTroco[k].push({
+          volta: iv,
+          pace: t.tempoMovS / t.comp,
+          peso: t.comp * p.pesoMesmoTroco,
+          fc: t.fcMedia,
+          sin: null,
+          pos: v.grelha.kmEsforco[c.j0],
+        });
       }
     });
   });
@@ -177,11 +198,32 @@ function grupoSinuosidade(sin: number | null, limites: number[]): number | null 
 
 type SegA = { v: number | null; nivel: 1 | 2 | 3 | 4; fc: number | null; n: number };
 
+/**
+ * Semelhança de esforço entre um troço de treino e um segmento da prova: a volta tem de
+ * ter uma distância parecida (fazer 40 km a fundo não é fazer 80) e o troço tem de estar
+ * num ponto parecido do esforço (os planos depois de partir o motor nas subidas são
+ * mais lentos). Tudo em km-esforço; mínimo 0,001 para os níveis seguintes não sumirem.
+ */
+export function semelhancaEsforco(totalVolta: number, posVolta: number, totalProva: number, posProva: number, p: ParametrosBtt) {
+  // razaoDistancia ≤ 1 ou desvioPosicao ≤ 0 desligam cada uma das partes.
+  const z1 = p.razaoDistancia > 1 ? Math.log(Math.max(totalVolta, 0.1) / Math.max(totalProva, 0.1)) / Math.log(p.razaoDistancia) : 0;
+  const z2 = p.desvioPosicao > 0 ? (posVolta - posProva) / Math.max(1, p.desvioPosicao * totalProva) : 0;
+  return Math.max(0.001, Math.exp(-0.5 * z1 * z1)) * Math.max(0.001, Math.exp(-0.5 * z2 * z2));
+}
+
 function estimadorA(prep: Preparacao, ate: string, p: ParametrosBtt, limites: number[], contagens?: number[]) {
+  const totalProva = prep.alvo.grelha.kmEsforco[prep.alvo.grelha.kmEsforco.length - 1];
+  const totais = prep.voltas.map((v) => v.grelha.kmEsforco[v.grelha.kmEsforco.length - 1]);
+  let posProva = 0;
   const peso = (c: Contrib) => {
     const v = prep.voltas[c.volta];
     if (v.data >= ate) return 0;
-    return c.peso * pesoRecencia(diasDesde(v.data, ate), p.meiaVidaDias) * (contagens ? contagens[c.volta] : 1);
+    return (
+      c.peso *
+      pesoRecencia(diasDesde(v.data, ate), p.meiaVidaDias) *
+      semelhancaEsforco(totais[c.volta], c.pos, totalProva, posProva, p) *
+      (contagens ? contagens[c.volta] : 1)
+    );
   };
   const juntar = (cs: Contrib[]) => {
     let sw = 0;
@@ -210,6 +252,7 @@ function estimadorA(prep: Preparacao, ate: string, p: ParametrosBtt, limites: nu
     return juntar(f) ? f : cs;
   };
   const porSeg: SegA[] = prep.alvo.segmentos.map((s, k) => {
+    posProva = s.kmEsforcoIni;
     const g = grupoSinuosidade(s.sinuosidade, limites);
     const c1 = juntar(prep.mesmoTroco[k]);
     const c12 = juntar([...prep.mesmoTroco[k], ...doGrupo(prep.porClasse[s.classe], g)]);
@@ -519,13 +562,26 @@ export function preverBtt(prep: Preparacao, zwift: SessaoZwift[], o: OpcoesPrevi
   if (principal.hoje.tempoS != null && o.alvoS != null && o.bootstrap) {
     const cv = reamostragens(prep.voltas.length, p.bootstrapN, 7);
     const cz = reamostragens(zwift.length, p.bootstrapN, 11);
+    // Terreno: nos segmentos sem dados do mesmo troço (nível > 1), um erro comum a todo o
+    // percurso (o piso é o mesmo de ponta a ponta), separado para subidas e plano/descidas.
+    let tPlanoDescida = 0;
+    let tSubida = 0;
+    prep.alvo.segmentos.forEach((s, k) => {
+      const t = principal.hoje.porSeg[k].t ?? 0;
+      if (a.porSeg[k].nivel === 1) return;
+      if (s.declive > 0.01) tSubida += t;
+      else tPlanoDescida += t;
+    });
+    const rnd = gerador(13);
+    const normal = () => Math.sqrt(-2 * Math.log(1 - rnd())) * Math.cos(2 * Math.PI * rnd());
     const xs: number[] = [];
     for (let i = 0; i < p.bootstrapN; i++) {
       const aa = estimadorA(prep, o.ate, p, limites, cv[i]);
       const rr = relacaoAte(zwift, o.ate, p.zwiftSemanas, cz[i]);
       const cc = calibrar(prep, zwift, o.ate, o.refIds, o.massa, p, limites, cv[i], cz[i]);
       const r = calcularCenario(prep, aa, rr, cc.porGrupo, limites, massa, o.perfis[0], 1, p);
-      if (r.tempoS != null) xs.push(r.tempoS * fator);
+      const terreno = normal() * p.incertezaPlanoDescida * tPlanoDescida + normal() * p.incertezaSubida * tSubida;
+      if (r.tempoS != null) xs.push((r.tempoS + terreno) * fator);
     }
     const h = resumoTempos(xs, o.alvoS);
     const pr = resumoTempos(xs.map((x) => (x * (principal.projecao.tempoS ?? x)) / (principal.hoje.tempoS ?? x)), o.alvoS);
@@ -679,7 +735,7 @@ export function backtestBtt(
   const r = preverBtt(
     prep,
     zwift,
-    { ate, dataProva: alvo.data, alvoS: null, perfis: [perfil], refIds: [], referencia: null, massa, bootstrap: false },
+    { ate, dataProva: alvo.data, alvoS: alvo.segmentos.reduce((t, s) => t + s.tempoMovS, 0), perfis: [perfil], refIds: [], referencia: null, massa, bootstrap: true },
     p,
   );
   const c = r.cenarios[0];
@@ -694,6 +750,10 @@ export function backtestBtt(
     realStravaS: alvo.duracaoMovimentoS,
     fatorMovimento: real > 0 ? alvo.duracaoMovimentoS / real : null,
     previstoS: c.hojeS,
+    /** Intervalo de 80% (bootstrap + terreno) e se o tempo real ficou lá dentro. */
+    p10S: r.hoje?.p10 ?? null,
+    p90S: r.hoje?.p90 ?? null,
+    dentroIntervalo: r.hoje ? real >= r.hoje.p10 && real <= r.hoje.p90 : null,
     aS: c.aS,
     aBrutoS: c.aBrutoS,
     bS: c.bS,

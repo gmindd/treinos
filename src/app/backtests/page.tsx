@@ -91,7 +91,8 @@ export default async function PaginaBacktests() {
                 {c.prova.nome} · {formatarData(c.prova.data)}
               </p>
               <p className="text-sm">
-                Real {dur(c.realS)}{c.realStravaS ? ` (Strava ${dur(c.realStravaS)})` : ""} · previsto <strong>{dur(c.previstoS)}</strong> ({pct(c.erro)}) · A {dur(c.aS)} ({pct(c.erroA)}) · B {dur(c.bS)} ({pct(c.erroB)})
+                Real {dur(c.realS)}{c.realStravaS ? ` (Strava ${dur(c.realStravaS)})` : ""}
+                {c.p10S != null && c.p90S != null ? ` · intervalo 80% ${dur(c.p10S)}–${dur(c.p90S)} (${c.dentroIntervalo ? "o real ficou dentro" : "o real ficou fora"})` : ""} · previsto <strong>{dur(c.previstoS)}</strong> ({pct(c.erro)}) · A {dur(c.aS)} ({pct(c.erroA)}) · B {dur(c.bS)} ({pct(c.erroB)})
               </p>
               <p className="text-xs text-zinc-600 dark:text-zinc-400">
                 Cobertura de A {formatarNumero(c.cobertura * 100)}% · segmentos por nível (troço/classe/vizinhas/B) {c.niveis.join("/")} · Crr calibrado em{" "}

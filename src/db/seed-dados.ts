@@ -129,6 +129,11 @@ export const parametrosIniciais: {
     origem: "dados",
   },
   { chave: "btt.grupos_sinuosidade", grupo: "btt", descricao: "Fator de terreno: grupos de sinuosidade (quantis dos dados) dentro de cada classe de declive; 1 = desligado", valor: 3, origem: "heuristica" },
+  { chave: "btt.dplus_por_km_esforco", grupo: "btt", descricao: "Km-esforço = km + D+ / isto (metros de subida que valem 1 km)", unidade: "m", valor: 100, origem: "literatura" },
+  { chave: "btt.razao_distancia", grupo: "btt", descricao: "Peso pela distância da volta face à prova: uma volta X vezes mais longa ou mais curta pesa 61% (2X: 23%)", valor: 1.5, origem: "heuristica" },
+  { chave: "btt.desvio_posicao", grupo: "btt", descricao: "Peso pelo cansaço: desvio do km-esforço já feito face ao do segmento da prova, em fração da prova (0 = desligado; com 0,25 a Rota passou de +4,4% para +7,6% nos backtests)", unidade: "fração", valor: 0, origem: "dados" },
+  { chave: "btt.incerteza_terreno_plano_descida", grupo: "btt", descricao: "Incerteza do piso no plano e nas descidas em troços nunca feitos (erro dos backtests: ±10%)", unidade: "fração", valor: 0.1, origem: "dados" },
+  { chave: "btt.incerteza_terreno_subida", grupo: "btt", descricao: "Incerteza do piso nas subidas em troços nunca feitos (erro dos backtests: ±2%)", unidade: "fração", valor: 0.02, origem: "dados" },
   { chave: "btt.divergencia_ab", grupo: "btt", descricao: "Divergência A/B a partir da qual se destaca", unidade: "fração", valor: 0.05, origem: "heuristica" },
 
   // Zwift (§8)

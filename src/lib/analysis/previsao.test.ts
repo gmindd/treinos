@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { casarTroco, classeDeclive, grelhaDistancia, indiceEspacial, segmentar, type StreamsBtt } from "./btt";
 import { amostrasCorrida, janelasEstaveis } from "./corrida";
 import { ganhoProjetado, mmqPonderados, percentil, reamostragens, regressaoHuber, resumoTempos } from "./estatistica";
-import { perfisPacing, preparar, preverBtt, prepararVolta, velocidadeFisica, type ParametrosBtt } from "./previsao-btt";
+import { perfisPacing, preparar, preverBtt, prepararVolta, semelhancaEsforco, velocidadeFisica, type ParametrosBtt } from "./previsao-btt";
 import {
   esforcosSessao,
   melhorEsforcoGap,
@@ -74,6 +74,11 @@ const pb: ParametrosBtt = {
   marcoSubidaMin: 12,
   declSubidaMin: 0.05,
   gruposSinuosidade: 3,
+  dPlusPorKmEsforco: 100,
+  razaoDistancia: 1.5,
+  desvioPosicao: 0,
+  incertezaPlanoDescida: 0.1,
+  incertezaSubida: 0.02,
 };
 
 describe("estatística", () => {
@@ -165,6 +170,15 @@ describe("motor BTT (7.2)", () => {
     expect(classeDeclive(-0.12, pb.classes)).toBe(0);
     expect(classeDeclive(0, pb.classes)).toBe(4);
     expect(classeDeclive(0.13, pb.classes)).toBe(10);
+  });
+
+  it("peso pela distância da volta (km-esforço): 2× mais longa ou mais curta pesa ~23%", () => {
+    expect(semelhancaEsforco(50, 0, 50, 0, pb)).toBeCloseTo(1);
+    expect(semelhancaEsforco(100, 0, 50, 0, pb)).toBeCloseTo(0.23, 2);
+    expect(semelhancaEsforco(25, 0, 50, 0, pb)).toBeCloseTo(0.23, 2);
+    // Com o peso pela posição ligado, o mesmo ponto do esforço pesa mais.
+    const comPosicao = { ...pb, desvioPosicao: 0.25 };
+    expect(semelhancaEsforco(50, 40, 50, 40, comPosicao)).toBeGreaterThan(semelhancaEsforco(50, 5, 50, 40, comPosicao));
   });
 
   it("física: mais potência = mais rápido; mais declive = mais lento", () => {

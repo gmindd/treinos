@@ -18,6 +18,8 @@ export type OpcoesGrelha = {
   maxLacunaS: number;
   medianaAltitudeM: number;
   janelaDecliveM: number;
+  /** Metros de subida que valem 1 km no "km-esforço" (omissão: 100, como no trail). */
+  dPlusPorKmEsforco?: number;
 };
 
 /** Grelha de distância: um ponto a cada `passoM`, e para cada passo k → k+1 o tempo em movimento e a FC. */
@@ -36,6 +38,8 @@ export type Grelha = {
   fcPasso: (number | null)[];
   /** Passo feito a pé (cadência 0 e velocidade baixa). */
   aPe: boolean[];
+  /** Km-esforço acumulado até cada ponto: km + D+ / dPlusPorKmEsforco. */
+  kmEsforco: number[];
 };
 
 function interpolar(xs: number[], ys: (number | null)[], x: number, desde: { i: number }): number | null {
@@ -121,7 +125,10 @@ export function grelhaDistancia(s: StreamsBtt, o: OpcoesGrelha): Grelha | null {
     const cad = s.cadence ? interpolar(s.time, s.cadence, tm, pC) : null;
     aPe.push(cad != null && cad < 1 && v > 0 && v < o.vAPeMs);
   }
-  return { passoM: o.passoM, d, alt, lat, lon, declive, tMov, fcPasso, aPe };
+  const porKm = o.dPlusPorKmEsforco ?? 100;
+  const kmEsforco = [0];
+  for (let k = 1; k < K; k++) kmEsforco.push(kmEsforco[k - 1] + (d[k] - d[k - 1]) / 1000 + Math.max(0, alt[k] - alt[k - 1]) / porKm);
+  return { passoM: o.passoM, d, alt, lat, lon, declive, tMov, fcPasso, aPe, kmEsforco };
 }
 
 /** Índice da classe de declive: 0 = "≤ limite[0]", …, limites.length = "> último". */
@@ -153,6 +160,8 @@ export type Segmento = {
   fracAPe: number;
   /** Sinuosidade: mudança de direção acumulada (graus por 100 m); null sem GPS. */
   sinuosidade: number | null;
+  /** Km-esforço já feito no início do segmento (estado de cansaço). */
+  kmEsforcoIni: number;
 };
 
 /**
@@ -263,6 +272,7 @@ export function segmentar(g: Grelha, limitesPct: number[], minM: number, limiarF
       ...e,
       classe: classeDeclive(e.declive, limitesPct),
       sinuosidade: sinuosidadeTroco(g, b.i0, b.i1),
+      kmEsforcoIni: g.kmEsforco[b.i0],
     };
   });
 }
