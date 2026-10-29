@@ -1,0 +1,1 @@
+ALTER TABLE "meta" ADD COLUMN "limites_setores" jsonb;

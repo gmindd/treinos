@@ -2,7 +2,7 @@
 // Modelo A: velocidade GAP = a + b·FC + c·t (Huber, ponderado por recência) avaliado na
 // FC de prova. Modelo B: melhores esforços convertidos com Riegel. Combinação ponderada
 // pela qualidade dos dados, intervalo por bootstrap por sessão e projeção até à prova.
-import type { AmostrasCorrida, JanelaEstavel } from "./corrida";
+import { custoMinetti, type AmostrasCorrida, type JanelaEstavel } from "./corrida";
 import {
   diasDesde,
   ganhoProjetado,
@@ -390,4 +390,26 @@ export function backtestCorrida(todas: SessaoCorrida[], fcMin: number, p: Parame
   const abs = erros.map(Math.abs).sort((x, y) => x - y);
   const medianaAbs = abs.length ? (abs.length % 2 ? abs[(abs.length - 1) / 2] : (abs[abs.length / 2 - 1] + abs[abs.length / 2]) / 2) : null;
   return { casos, avaliados: erros.length, semDados: casos.length - erros.length, erroMedianoAbs: medianaAbs };
+}
+
+// ---------------------------------------------------------------------------
+// Percursos com desnível (§7.1: "aplicar o perfil, GAP inverso por troço")
+// ---------------------------------------------------------------------------
+
+/**
+ * Distância plana equivalente de um percurso: cada troço vale comp · C(i) / C(0) (custo de
+ * Minetti). O modelo prevê esta distância em plano e o tempo reparte-se pelos troços.
+ */
+export function distanciaEquivalente(segmentos: { comp: number; declive: number }[]): number {
+  return segmentos.reduce((t, s) => t + (s.comp * custoMinetti(s.declive)) / custoMinetti(0), 0);
+}
+
+/**
+ * Sem perfil, só com o D+: metade da distância a subir e metade a descer com o declive
+ * médio D+ / (distância / 2). Devolve a razão distância equivalente / distância.
+ */
+export function fatorDesnivel(distanciaM: number, desnivelM: number): number {
+  if (!(distanciaM > 0) || !(desnivelM > 0)) return 1;
+  const g = desnivelM / (distanciaM / 2);
+  return (custoMinetti(g) + custoMinetti(-g)) / (2 * custoMinetti(0));
 }

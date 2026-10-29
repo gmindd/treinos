@@ -2,9 +2,11 @@
 // distância à meta e evolução da previsão.
 import Link from "next/link";
 import type { meta } from "@/db/schema";
+import { metaDoSeed } from "@/db/seed-dados";
 import { diasDesde } from "@/lib/analysis/estatistica";
 import { formatarData, formatarDuracao, formatarNumero } from "@/lib/formato";
 import { GraficoPrevisao } from "./graficos";
+import { BotaoApagar } from "./metas/formularios";
 
 type Snapshot = {
   data: string;
@@ -41,9 +43,12 @@ export function CartaoPrevisao({
     <li className="flex flex-col gap-2 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
       <div className="flex items-baseline justify-between gap-2">
         <p className="font-medium">{m.nome}</p>
-        <Link href={`/metas/${m.id}`} className="shrink-0 text-sm underline">
-          Detalhe
-        </Link>
+        <span className="flex shrink-0 gap-3">
+          <Link href={`/metas/${m.id}`} className="text-sm underline">
+            Detalhe
+          </Link>
+          <BotaoApagar id={m.id} nome={m.nome} apagar={!metaDoSeed(m.nome)} />
+        </span>
       </div>
       <p className="text-sm text-zinc-600 dark:text-zinc-400">
         {formatarData(m.dataProva)} ({dias} dias) · meta &lt; {formatarDuracao(m.tempoAlvoS)}

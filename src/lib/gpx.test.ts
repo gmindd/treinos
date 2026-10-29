@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { resumoPorZona, setoresContinuos } from "./analysis/previsao-btt";
-import { lerDuracao } from "./formato";
+import { resumoPorZona, setoresContinuos, setoresPorLimites } from "./analysis/previsao-btt";
+import { distanciaEquivalente, fatorDesnivel } from "./analysis/previsao-corrida";
+import { lerDuracao, lerNumero } from "./formato";
 import { desnivelPositivo, haversine, lerGpx, streamsDoGpx } from "./gpx";
 
 const GPX = `<?xml version="1.0" encoding="UTF-8"?>
@@ -51,6 +52,27 @@ describe("tempo-alvo e zonas", () => {
     expect(lerDuracao("1:55")).toBe(6900);
     expect(lerDuracao("abc")).toBeNull();
     expect(lerDuracao("1:75:00")).toBeNull();
+    // Corrida: duas partes são mm:ss.
+    expect(lerDuracao("55:30", "mm:ss")).toBe(3330);
+    expect(lerDuracao("1:02:30", "mm:ss")).toBe(3750);
+    expect(lerNumero("21,1")).toBeCloseTo(21.1);
+    expect(lerNumero("")).toBeNull();
+  });
+
+  it("corrida com desnível: distância plana equivalente (Minetti)", () => {
+    // Plano: igual à distância.
+    expect(fatorDesnivel(10000, 0)).toBe(1);
+    // 10 m/km (5 km, 50 m): pouco mais do que plano; 100 m/km já pesa claramente.
+    expect(fatorDesnivel(5000, 50)).toBeGreaterThan(1);
+    expect(fatorDesnivel(5000, 50)).toBeLessThan(1.01);
+    expect(fatorDesnivel(5000, 500)).toBeGreaterThan(1.1);
+    // Com perfil: subir custa mais do que descer poupa.
+    const eq = distanciaEquivalente([
+      { comp: 1000, declive: 0.05 },
+      { comp: 1000, declive: -0.05 },
+    ]);
+    expect(eq).toBeGreaterThan(2000);
+    expect(distanciaEquivalente([{ comp: 1000, declive: 0 }])).toBeCloseTo(1000);
   });
 
   it("agrupa segmentos por zona de declive e por setor", () => {
@@ -84,5 +106,21 @@ describe("tempo-alvo e zonas", () => {
     expect(z[0]).toMatchObject({ numero: 1, dIni: 0, comp: 2500 });
     expect(z[0].referenciaS).toBeCloseTo(500);
     expect(z[1].comp).toBe(1500);
+  });
+
+  it("setores por limites escolhidos: reagrupa os segmentos e soma os tempos", () => {
+    const seg = (dIni: number, declive: number) => ({
+      dIni, comp: 500, declive, classe: "", classeIdx: 0, referenciaS: 100, previstoS: 90, necessarioS: 80,
+    });
+    const segs = [seg(0, 0.05), seg(500, 0.05), seg(1000, 0), seg(1500, -0.04), seg(2000, -0.04)];
+    const z = setoresPorLimites(segs, [1000, 1500, 99999, -5]);
+    expect(z.map((s) => [s.dIni, s.comp, s.tipo])).toEqual([
+      [0, 1000, "subida"],
+      [1000, 500, "plano"],
+      [1500, 1000, "descida"],
+    ]);
+    expect(z[2]).toMatchObject({ referenciaS: 200, previstoS: 180, necessarioS: 160 });
+    // Um limite a meio de um segmento fica no início do segmento seguinte.
+    expect(setoresPorLimites(segs, [700]).map((s) => s.comp)).toEqual([1000, 1500]);
   });
 });

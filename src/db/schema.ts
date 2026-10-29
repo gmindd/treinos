@@ -277,6 +277,10 @@ export const meta = pgTable("meta", {
   tipo: tipoMeta("tipo").notNull(),
   dataProva: date("data_prova").notNull(),
   distanciaM: real("distancia_m"),
+  /** Desnível positivo (m) de metas de corrida sem GPX; null = plano. */
+  desnivelM: real("desnivel_m"),
+  /** Limites dos setores escolhidos pelo atleta (metros desde o início); null = automáticos. */
+  limitesSetores: jsonb("limites_setores"),
   percursoId: integer("percurso_id").references(() => percurso.id, { onDelete: "set null" }),
   /** Atividade Strava de referência (ex.: edição anterior da prova). */
   referenciaStravaId: bigint("referencia_strava_id", { mode: "number" }),

@@ -181,3 +181,6 @@ export const metasIniciais = [
     notas: "Mesmo percurso de 2026: 36,0 km / 793 m D+ em 2:17:43 em movimento.",
   },
 ];
+
+/** Metas do seed: apagá-las não serve (voltavam no deploy), só saem do painel. */
+export const metaDoSeed = (nome: string) => metasIniciais.some((m) => m.nome === nome);

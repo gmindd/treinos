@@ -15,6 +15,20 @@
       "when": 1793236176504,
       "tag": "0001_fase2_constantes",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793272710316,
+      "tag": "0002_meta_desnivel",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793273220150,
+      "tag": "0003_meta_limites_setores",
+      "breakpoints": true
     }
   ]
 }

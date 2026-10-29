@@ -10,6 +10,7 @@ import {
   backtestBtt,
   perfisPacing,
   preparar,
+  fatorMovimentoMediano,
   prepararVolta,
   preverBtt,
   resumoPorZona,
@@ -17,7 +18,15 @@ import {
   type SessaoZwift,
   type VoltaBtt,
 } from "@/lib/analysis/previsao-btt";
-import { backtestCorrida, preverCorrida, type SessaoCorrida } from "@/lib/analysis/previsao-corrida";
+import { custoMinetti } from "@/lib/analysis/corrida";
+import { rotuloClasse } from "@/lib/analysis/btt";
+import {
+  backtestCorrida,
+  distanciaEquivalente,
+  fatorDesnivel,
+  preverCorrida,
+  type SessaoCorrida,
+} from "@/lib/analysis/previsao-corrida";
 import { lerConstantes, lerParametros, lerStreams } from "@/lib/calculo/recalcular";
 import { dataIsoLisboa, formatarData } from "@/lib/formato";
 import { streamsDoGpx, type Gpx } from "@/lib/gpx";
@@ -111,14 +120,71 @@ type Resumo = {
   detalhes: Record<string, unknown>;
 };
 
-function preverMetaCorrida(m: Meta, d: Dados, ate: string, p: Parametros, completo: boolean): Resumo {
+/**
+ * Corrida: o modelo prevê a distância plana equivalente (Minetti). Com GPX, o tempo
+ * reparte-se pelos segmentos (altimetria, setores e zonas como no BTT); sem GPX, o D+ da
+ * meta entra com metade a subir e metade a descer.
+ */
+function preverMetaCorrida(
+  m: Meta,
+  d: Dados,
+  gpx: Map<number, AlvoGpx | null>,
+  ate: string,
+  p: Parametros,
+  pb: ParametrosBtt,
+  completo: boolean,
+): Resumo {
   const pc = parametrosCorrida(p);
-  const r = preverCorrida(d.corridas, ate, m.distanciaM ?? 10000, m.tempoAlvoS, m.dataProva, completo ? pc : { ...pc, bootstrapN: 0 });
+  const g = m.percursoId ? gpx.get(m.percursoId) : undefined;
+  if (m.percursoId && !g) {
+    return { suficiente: false, hoje: null, projecao: null, detalhes: { tipo: "corrida", falta: ["Percurso: o GPX não deu para segmentar."] } };
+  }
+  const segs = g?.volta.segmentos ?? null;
+  const distancia = segs ? segs.reduce((t, s) => t + s.comp, 0) : (m.distanciaM ?? 10000);
+  const desnivel = segs ? segs.reduce((t, s) => t + Math.max(0, s.declive * s.comp), 0) : (m.desnivelM ?? 0);
+  const equivalente = segs ? distanciaEquivalente(segs) : distancia * fatorDesnivel(distancia, desnivel);
+  const r = preverCorrida(d.corridas, ate, equivalente, m.tempoAlvoS, m.dataProva, completo ? pc : { ...pc, bootstrapN: 0 });
+  const percurso = { distanciaM: distancia, desnivelM: desnivel, equivalenteM: equivalente };
+  if (!completo) {
+    return { suficiente: r.suficiente, hoje: r.hoje, projecao: r.projecao, detalhes: { tipo: "corrida", a: r.a?.tempoS ?? null, b: r.b?.tempoS ?? null, falta: r.falta, percurso } };
+  }
+  let curso: Record<string, unknown> | null = null;
+  if (g && segs && r.hoje) {
+    const T = r.hoje.centralS;
+    const peso = segs.map((s) => (s.comp * custoMinetti(s.declive)) / custoMinetti(0) / equivalente);
+    const ref = g.temTempo ? segs.map((s) => s.tempoMovS) : null;
+    const somaRef = ref ? ref.reduce((t, x) => t + x, 0) : 0;
+    const segmentos = segs.map((s, k) => {
+      const previsto = T * peso[k];
+      return {
+        dIni: s.dIni,
+        comp: s.comp,
+        declive: s.declive,
+        classe: rotuloClasse(s.classe, pb.classes),
+        classeIdx: s.classe,
+        nivel: 0,
+        referenciaS: ref ? ref[k] : null,
+        previstoS: previsto,
+        // Meta repartida como a referência (o mesmo ritmo relativo) ou, sem ela, como o previsto.
+        necessarioS: ref && somaRef > 0 ? (ref[k] * m.tempoAlvoS) / somaRef : (previsto * m.tempoAlvoS) / T,
+        fcPerfil: s.fcMedia,
+        pontos: [s.i0, s.i1] as [number, number],
+      };
+    });
+    const gr = g.volta.grelha;
+    curso = {
+      segmentos,
+      ...resumoPorZona(segmentos),
+      gpx: { temTempo: g.temTempo, temFc: g.temFc, data: g.data },
+      mapa: gr.lat.map((la, k) => [la, gr.lon[k]]).filter((_, k) => k % 2 === 0),
+      altimetria: gr.d.map((x, k) => [Math.round(x), Math.round(gr.alt[k] * 10) / 10]).filter((_, k) => k % 4 === 0 || k === gr.d.length - 1),
+    };
+  }
   return {
     suficiente: r.suficiente,
     hoje: r.hoje,
     projecao: r.projecao,
-    detalhes: completo ? { tipo: "corrida", ...r, eficiencia: r.eficiencia } : { tipo: "corrida", a: r.a?.tempoS ?? null, b: r.b?.tempoS ?? null, falta: r.falta },
+    detalhes: { tipo: "corrida", ...r, eficiencia: r.eficiencia, percurso, curso },
   };
 }
 
@@ -156,16 +222,34 @@ function preverMetaBtt(
   let refIds: number[] = [];
   let nomeRef = "";
   let origem: Record<string, unknown> = {};
+  let fatorMovimento: number | undefined;
   if (m.percursoId) {
     const g = gpx.get(m.percursoId);
     if (!g) return { suficiente: false, hoje: null, projecao: null, detalhes: { tipo: "btt", falta: ["Percurso: o GPX não deu para segmentar."] } };
     alvo = g.volta;
+    // Tudo em tempo em movimento do Strava: se o GPX é uma volta tua (mesmo dia e mesma
+    // distância), usa-se o tempo dessa atividade; senão, o fator mediano das voltas recentes.
+    const dist = alvo.grelha.d[alvo.grelha.d.length - 1];
+    // A distância do GPX (ponto a ponto) e a do Strava diferem uns 4%: tolerância de 8%,
+    // e se houver várias voltas nesse dia fica a de distância mais próxima.
+    const diferenca = (v: VoltaBtt) => Math.abs(v.grelha.d[v.grelha.d.length - 1] - dist) / dist;
+    const mesma = g.data
+      ? d.voltas.filter((v) => v.data === g.data && diferenca(v) < 0.08).sort((x, y) => diferenca(x) - diferenca(y))[0]
+      : undefined;
+    const fatorMed = fatorMovimentoMediano(d.voltas, ate);
     if (g.temTempo) {
       const porSeg = alvo.segmentos.map((s) => s.tempoMovS);
-      referencia = { tempoS: m.tempoReferenciaS ?? porSeg.reduce((t, x) => t + x, 0), porSeg };
+      const soma = porSeg.reduce((t, x) => t + x, 0);
+      referencia = { tempoS: m.tempoReferenciaS ?? (mesma ? mesma.duracaoMovimentoS : soma * fatorMed), porSeg };
+    } else {
+      fatorMovimento = fatorMed;
     }
+    if (mesma) refIds = [mesma.id];
     nomeRef = g.temFc ? `FC do GPX${g.data ? ` (${formatarData(g.data)})` : ""}` : `FC constante de ${pb.fcProvaDefault} bpm`;
-    origem = { gpx: { temTempo: g.temTempo, temFc: g.temFc, data: g.data } };
+    origem = {
+      gpx: { temTempo: g.temTempo, temFc: g.temFc, data: g.data },
+      unidades: mesma ? `tempo do Strava de "${mesma.nome}"` : `fator mediano das voltas recentes (${fatorMed.toFixed(3).replace(".", ",")})`,
+    };
   } else {
     const idRef = m.referenciaStravaId ? d.stravaParaId.get(m.referenciaStravaId) : undefined;
     alvo = idRef != null ? d.voltas.find((v) => v.id === idRef) : undefined;
@@ -198,6 +282,7 @@ function preverMetaBtt(
       referencia,
       massa: massa(linhas),
       bootstrap: completo,
+      fatorMovimento,
     },
     pb,
   );
@@ -256,7 +341,7 @@ export async function recalcularPrevisoes(db: Db) {
       if (!completo && existentes.some((e) => e.metaId === m.id && e.data === data && e.versao === VERSAO_PREVISAO)) continue;
       // Snapshot de `data` = previsão com os dados até ao fim desse dia.
       const ate = somarDias(data, 1);
-      const r = m.tipo === "corrida" ? preverMetaCorrida(m, d, ate, p, completo) : preverMetaBtt(m, d, gpx, ate, pb, linhas, completo, cache);
+      const r = m.tipo === "corrida" ? preverMetaCorrida(m, d, gpx, ate, p, pb, completo) : preverMetaBtt(m, d, gpx, ate, pb, linhas, completo, cache);
       const valores = {
         versaoModelo: VERSAO_PREVISAO,
         suficiente: r.suficiente,

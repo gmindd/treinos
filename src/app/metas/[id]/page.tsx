@@ -4,13 +4,15 @@ import { notFound } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { meta } from "@/db/schema";
-import { setoresContinuos, type PrevisaoBtt, type SetorContinuo, type Zona } from "@/lib/analysis/previsao-btt";
+import { metaDoSeed } from "@/db/seed-dados";
+import { setoresContinuos, type PrevisaoBtt, type Zona } from "@/lib/analysis/previsao-btt";
 import type { PrevisaoCorrida } from "@/lib/analysis/previsao-corrida";
 import { formatarData, formatarDistancia, formatarDuracao, formatarNumero } from "@/lib/formato";
 import { estadoValidacao, lerBacktests, previsaoDetalhada } from "@/lib/previsao/consultas";
-import { corClasse, GraficoAltimetria, MapaPercurso, segundosCurtos } from "../../graficos";
+import { corClasse, MapaPercurso } from "../../graficos";
 import { removerMeta } from "../actions";
 import { EditarMeta } from "../formularios";
+import { AltimetriaEditavel } from "../altimetria-editavel";
 
 const dur = (s: number | null | undefined) => (s != null && Number.isFinite(s) ? formatarDuracao(s) : "—");
 const pct = (x: number | null | undefined, casas = 0) => (x != null && Number.isFinite(x) ? `${formatarNumero(x * 100, casas)}%` : "—");
@@ -29,9 +31,56 @@ function Lista({ titulo, itens, aviso }: { titulo: string; itens: string[]; avis
   );
 }
 
-function Corrida({ r, alvoS }: { r: PrevisaoCorrida; alvoS: number }) {
+type DetalhesCorrida = PrevisaoCorrida & {
+  percurso?: { distanciaM: number; desnivelM: number; equivalenteM: number };
+  curso?: VistaPercurso | null;
+};
+
+function Corrida({
+  r,
+  alvoS,
+  metaId,
+  vs,
+  limites,
+}: {
+  r: DetalhesCorrida;
+  alvoS: number;
+  metaId: number;
+  vs: "referencia" | "meta";
+  limites: number[] | null;
+}) {
   return (
     <>
+      {r.percurso && (
+        <p className="text-sm">
+          Percurso: {formatarDistancia(r.percurso.distanciaM)} com {Math.round(r.percurso.desnivelM)} m D+ · equivale a{" "}
+          <strong>{formatarDistancia(r.percurso.equivalenteM)}</strong> em plano (custo de Minetti
+          {r.curso ? ", troço a troço" : ", metade a subir e metade a descer"}).
+        </p>
+      )}
+      {r.curso && (
+        <>
+          <AltimetriaSetores r={r.curso} metaId={metaId} vs={vs} limitesGuardados={limites} />
+          {r.curso.setores && (
+            <section className="flex flex-col gap-2">
+              <h2 className="text-lg font-medium">Por setor</h2>
+              <TabelaZonas zonas={r.curso.setores} titulo="Setor" />
+            </section>
+          )}
+          {r.curso.zonas && (
+            <section className="flex flex-col gap-2">
+              <h2 className="text-lg font-medium">Tempo por zona de declive</h2>
+              <TabelaZonas zonas={r.curso.zonas} titulo="Declive" />
+            </section>
+          )}
+          {r.curso.mapa && (
+            <section className="flex flex-col gap-1">
+              <h2 className="text-lg font-medium">Mapa</h2>
+              <MapaPercurso pontos={r.curso.mapa} passo={2} segmentos={r.curso.segmentos.map((x) => ({ pontos: x.pontos, cor: corClasse(x.classeIdx) }))} />
+            </section>
+          )}
+        </>
+      )}
       <section className="flex flex-col gap-2">
         <h2 className="text-lg font-medium">Modelos</h2>
         <table className="w-full text-sm">
@@ -158,6 +207,27 @@ function TabelaZonas({ zonas, titulo, cor }: { zonas: Zona[]; titulo: string; co
   );
 }
 
+/** O que a altimetria, as tabelas e o mapa precisam (BTT e corrida com GPX). */
+type VistaPercurso = {
+  segmentos: {
+    dIni: number;
+    comp: number;
+    declive: number;
+    classe: string;
+    classeIdx: number;
+    referenciaS: number | null;
+    previstoS: number | null;
+    necessarioS: number | null;
+    pontos: [number, number];
+  }[];
+  referencia?: { nome: string; data: string };
+  gpx?: { temTempo: boolean; temFc: boolean; data: string | null };
+  mapa?: ([number | null, number | null] | null)[];
+  altimetria?: [number, number][];
+  zonas?: Zona[];
+  setores?: Zona[];
+};
+
 type DetalhesBtt = PrevisaoBtt & {
   referencia?: { nome: string; data: string };
   gpx?: { temTempo: boolean; temFc: boolean; data: string | null };
@@ -167,17 +237,28 @@ type DetalhesBtt = PrevisaoBtt & {
   setores?: Zona[];
 };
 
-const NOME_TIPO = { subida: "Subida", plano: "Plano", descida: "Descida" } as const;
 
-/** Altimetria com os setores numerados e os segundos ganhos/perdidos hoje em cada um. */
-function AltimetriaSetores({ r, metaId, vs }: { r: DetalhesBtt; metaId: number; vs: "referencia" | "meta" }) {
-  const setores = setoresContinuos(r.segmentos);
-  const temRef = setores.some((z) => z.referenciaS != null);
+/**
+ * Altimetria com os setores numerados e os segundos ganhos/perdidos hoje em cada um. Os
+ * setores editam-se no gráfico (arrastar/criar/remover linhas) e podem ser guardados.
+ */
+function AltimetriaSetores({
+  r,
+  metaId,
+  vs,
+  limitesGuardados,
+}: {
+  r: VistaPercurso;
+  metaId: number;
+  vs: "referencia" | "meta";
+  limitesGuardados: number[] | null;
+}) {
+  const automaticos = setoresContinuos(r.segmentos)
+    .slice(1)
+    .map((z) => z.dIni);
+  const temRef = r.segmentos.some((s) => s.referenciaS != null);
   const modo = vs === "referencia" && temRef ? "referencia" : "meta";
-  const base = (z: SetorContinuo) => (modo === "referencia" ? z.referenciaS : z.necessarioS);
-  const delta = (z: SetorContinuo) => (z.previstoS != null && base(z) != null ? z.previstoS - (base(z) as number) : null);
   const nomeRef = r.referencia ? formatarData(r.referencia.data) : r.gpx?.data ? formatarData(r.gpx.data) : "a referência";
-  const total = setores.reduce((t, z) => t + (delta(z) ?? 0), 0);
   const botao = (ativo: boolean) => `rounded-full px-3 py-1 ${ativo ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900" : "border border-zinc-300 dark:border-zinc-700"}`;
   return (
     <section className="flex flex-col gap-2">
@@ -193,61 +274,27 @@ function AltimetriaSetores({ r, metaId, vs }: { r: DetalhesBtt; metaId: number; 
           meta {dur(r.segmentos.reduce((t, s) => t + (s.necessarioS ?? 0), 0))}
         </Link>
       </div>
-      <GraficoAltimetria
+      <AltimetriaEditavel
+        metaId={metaId}
         pontos={r.altimetria ?? []}
         segmentos={r.segmentos}
-        setores={setores.map((z) => ({ numero: z.numero, dIni: z.dIni, comp: z.comp, delta: delta(z) }))}
+        limitesIniciais={limitesGuardados ?? automaticos}
+        limitesAutomaticos={automaticos}
+        modo={modo}
+        rotuloBase={nomeRef}
       />
-      <p className="text-xs text-zinc-600 dark:text-zinc-400">
-        Barras: segundos que <span className="text-red-700 dark:text-red-400">perdes (+)</span> ou{" "}
-        <span className="text-green-700 dark:text-green-400">ganhas (−)</span> hoje em cada setor,{" "}
-        {modo === "referencia" ? `face a ${nomeRef}` : "face ao tempo necessário para a meta"}. No total: <strong>{segundosCurtos(total)}</strong>.
-      </p>
-      <table className="w-full text-xs">
-        <thead className="text-left text-zinc-500">
-          <tr>
-            <th className="py-1 pr-1 font-normal">#</th>
-            <th className="pr-1 font-normal">Setor</th>
-            <th className="pr-1 font-normal">km</th>
-            <th className="pr-1 font-normal">{modo === "referencia" ? "Ref." : "Meta"}</th>
-            <th className="pr-1 font-normal">Hoje</th>
-            <th className="font-normal">±</th>
-          </tr>
-        </thead>
-        <tbody>
-          {setores.map((z) => {
-            const d = delta(z);
-            return (
-              <tr key={z.numero} className="border-t border-zinc-200 dark:border-zinc-800">
-                <td className="py-1 pr-1">{z.numero}</td>
-                <td className="whitespace-nowrap pr-1">
-                  {NOME_TIPO[z.tipo]} {z.tipo !== "plano" ? `${formatarNumero(z.declive * 100, 1)}%` : ""}
-                </td>
-                <td className="whitespace-nowrap pr-1">
-                  {formatarNumero(z.dIni / 1000, 1)}–{formatarNumero((z.dIni + z.comp) / 1000, 1)}
-                </td>
-                <td className="whitespace-nowrap pr-1">{dur(base(z))}</td>
-                <td className="whitespace-nowrap pr-1">{dur(z.previstoS)}</td>
-                <td className={`whitespace-nowrap ${d == null ? "" : d > 0 ? "text-red-700 dark:text-red-400" : "text-green-700 dark:text-green-400"}`}>
-                  {d == null ? "—" : segundosCurtos(d)}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
     </section>
   );
 }
 
-function Btt({ r, metaId, vs }: { r: DetalhesBtt; metaId: number; vs: "referencia" | "meta" }) {
+function Btt({ r, metaId, vs, limites }: { r: DetalhesBtt; metaId: number; vs: "referencia" | "meta"; limites: number[] | null }) {
   const nivel = ["mesmo troço", "mesma classe", "classes vizinhas", "física (B)"];
   const comMeta = r.setores?.filter((z) => z.necessarioS != null && z.previstoS != null) ?? [];
   const pior = [...comMeta].sort((a, b) => (b.previstoS! - b.necessarioS!) / b.necessarioS! - (a.previstoS! - a.necessarioS!) / a.necessarioS!)[0];
   const semRef = r.gpx && !r.gpx.temTempo;
   return (
     <>
-      {r.altimetria && <AltimetriaSetores r={r} metaId={metaId} vs={vs} />}
+      {r.altimetria && <AltimetriaSetores r={r} metaId={metaId} vs={vs} limitesGuardados={limites} />}
       {r.setores && (
         <section className="flex flex-col gap-2">
           <h2 className="text-lg font-medium">Onde ganhas e onde perdes</h2>
@@ -428,17 +475,25 @@ export default async function PaginaMeta({ params, searchParams }: PageProps<"/m
       <details className="rounded-xl border border-zinc-200 p-3 dark:border-zinc-800">
         <summary className="cursor-pointer text-sm">Editar meta</summary>
         <div className="mt-3 flex flex-col gap-3">
-          <EditarMeta id={m.id} nome={m.nome} alvo={formatarDuracao(m.tempoAlvoS)} data={formatarData(m.dataProva)} />
+          <EditarMeta
+            id={m.id}
+            nome={m.nome}
+            alvo={formatarDuracao(m.tempoAlvoS)}
+            data={formatarData(m.dataProva)}
+            {...(m.tipo === "corrida" && !m.percursoId
+              ? { distanciaKm: formatarNumero((m.distanciaM ?? 10000) / 1000, 1), desnivelM: m.desnivelM != null ? String(Math.round(m.desnivelM)) : "" }
+              : {})}
+          />
           <form action={removerMeta}>
             <input type="hidden" name="id" value={m.id} />
-            <button className="text-sm text-red-700 underline dark:text-red-400">{m.percursoId ? "Apagar meta e GPX" : "Retirar do painel"}</button>
+            <button className="text-sm text-red-700 underline dark:text-red-400">{metaDoSeed(m.nome) ? "Retirar do painel" : m.percursoId ? "Apagar meta e GPX" : "Apagar meta"}</button>
           </form>
         </div>
       </details>
       <Lista titulo="O que falta" itens={det.falta ?? []} />
       <Lista titulo="Avisos" itens={det.avisos ?? []} aviso />
-      {snap?.suficiente && det.tipo === "corrida" && <Corrida r={det as unknown as PrevisaoCorrida} alvoS={m.tempoAlvoS} />}
-      {snap?.suficiente && det.tipo === "btt" && <Btt r={det as unknown as DetalhesBtt} metaId={m.id} vs={vs} />}
+      {snap?.suficiente && det.tipo === "corrida" && <Corrida r={det as unknown as DetalhesCorrida} alvoS={m.tempoAlvoS} metaId={m.id} vs={vs} limites={m.limitesSetores as number[] | null} />}
+      {snap?.suficiente && det.tipo === "btt" && <Btt r={det as unknown as DetalhesBtt} metaId={m.id} vs={vs} limites={m.limitesSetores as number[] | null} />}
       {!snap && <p className="text-sm">A calcular a previsão… recarrega a página dentro de alguns segundos.</p>}
     </main>
   );

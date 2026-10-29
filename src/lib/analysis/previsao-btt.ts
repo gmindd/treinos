@@ -524,6 +524,8 @@ export type OpcoesPrevisaoBtt = {
   referencia: { tempoS: number; porSeg: number[] } | null;
   massa: (data: string) => number;
   bootstrap: boolean;
+  /** Sem referência: fator streams → tempo em movimento do Strava (mediana das voltas recentes). */
+  fatorMovimento?: number;
 };
 
 export function preverBtt(prep: Preparacao, zwift: SessaoZwift[], o: OpcoesPrevisaoBtt, p: ParametrosBtt) {
@@ -539,7 +541,7 @@ export function preverBtt(prep: Preparacao, zwift: SessaoZwift[], o: OpcoesPrevi
   const ganho = ganhoPotencia(zwift, o.ate, o.dataProva, p);
   const ref = o.referencia;
   const somaRef = ref ? ref.porSeg.reduce((t, x) => t + x, 0) : 0;
-  const fator = ref && somaRef > 0 ? ref.tempoS / somaRef : 1;
+  const fator = ref && somaRef > 0 ? ref.tempoS / somaRef : (o.fatorMovimento ?? 1);
   const S = (x: number | null | undefined) => (x == null ? null : x * fator);
 
   const cenarios = o.perfis.map((perfil) => {
@@ -665,6 +667,20 @@ export function preverBtt(prep: Preparacao, zwift: SessaoZwift[], o: OpcoesPrevi
 }
 
 export type PrevisaoBtt = ReturnType<typeof preverBtt>;
+
+/**
+ * Fator entre o tempo em movimento do Strava (resumo do aparelho) e o medido nos streams,
+ * mediana das últimas `n` voltas válidas antes de `ate` (1 sem dados).
+ */
+export function fatorMovimentoMediano(voltas: VoltaBtt[], ate: string, n = 20): number {
+  const fs = voltas
+    .filter((v) => !v.excluida && v.data < ate && v.duracaoMovimentoS > 0)
+    .slice(-n)
+    .map((v) => v.duracaoMovimentoS / (v.grelha.tMov[v.grelha.tMov.length - 1] || Infinity))
+    .filter((x) => x > 0.8 && x < 1.5)
+    .sort((a, b) => a - b);
+  return fs.length ? fs[Math.floor(fs.length / 2)] : 1;
+}
 
 type LinhaSegmento = {
   comp: number;
@@ -841,4 +857,33 @@ export function setoresContinuos(segmentos: (LinhaSegmento & { dIni: number })[]
       necessarioS: z.necessarioS,
     };
   });
+}
+
+/**
+ * Setores a partir de limites escolhidos (metros desde o início): cada segmento entra no
+ * setor onde começa; o tipo é o que tiver mais metros. Limites fora do percurso ignoram-se.
+ */
+export function setoresPorLimites(segmentos: (LinhaSegmento & { dIni: number })[], limites: number[]): SetorContinuo[] {
+  if (segmentos.length === 0) return [];
+  const fim = segmentos[segmentos.length - 1].dIni + segmentos[segmentos.length - 1].comp;
+  const cortes = [...new Set(limites.filter((l) => l > segmentos[0].dIni && l < fim))].sort((a, b) => a - b);
+  const grupos: (LinhaSegmento & { dIni: number })[][] = Array.from({ length: cortes.length + 1 }, () => []);
+  for (const s of segmentos) grupos[cortes.filter((c) => s.dIni >= c).length].push(s);
+  return grupos
+    .filter((g) => g.length > 0)
+    .map((g, k) => {
+      const z = somar("", g);
+      const m: Record<TipoSetor, number> = { subida: 0, plano: 0, descida: 0 };
+      for (const s of g) m[tipoDe(s.declive)] += s.comp;
+      return {
+        numero: k + 1,
+        tipo: (Object.keys(m) as TipoSetor[]).sort((x, y) => m[y] - m[x])[0],
+        dIni: g[0].dIni,
+        comp: z.comp,
+        declive: z.comp > 0 ? z.desnivel / z.comp : 0,
+        referenciaS: z.referenciaS,
+        previstoS: z.previstoS,
+        necessarioS: z.necessarioS,
+      };
+    });
 }

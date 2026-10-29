@@ -52,10 +52,31 @@ export function formatarNumero(v: number | null | undefined, casas = 0): string 
   return r.toLocaleString("pt-PT", { minimumFractionDigits: casas, maximumFractionDigits: casas, useGrouping: false });
 }
 
-/** "2:00:00" ou "1:55" (h:mm) → segundos; null se inválido. */
-export function lerDuracao(texto: string): number | null {
-  const m = /^\s*(\d{1,2}):([0-5]\d)(?::([0-5]\d))?\s*$/.exec(texto);
-  if (!m) return null;
-  const s = Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3] ?? 0);
+/**
+ * "2:00:00" → segundos. Com duas partes, `duasPartes` decide: "1:55" é h:mm (BTT) ou
+ * "55:30" é mm:ss (corrida). Null se inválido.
+ */
+export function lerDuracao(texto: string, duasPartes: "h:mm" | "mm:ss" = "h:mm"): number | null {
+  const t = texto.trim();
+  const tres = /^(\d{1,2}):([0-5]\d):([0-5]\d)$/.exec(t);
+  if (tres) {
+    const s = Number(tres[1]) * 3600 + Number(tres[2]) * 60 + Number(tres[3]);
+    return s > 0 ? s : null;
+  }
+  const duas = /^(\d{1,3}):([0-5]\d)$/.exec(t);
+  if (!duas) return null;
+  if (duasPartes === "h:mm") {
+    const s = Number(duas[1]) * 3600 + Number(duas[2]) * 60;
+    return s > 0 && Number(duas[1]) < 24 ? s : null;
+  }
+  const s = Number(duas[1]) * 60 + Number(duas[2]);
   return s > 0 ? s : null;
+}
+
+/** "10,5" ou "10.5" → número; null se vazio ou inválido. */
+export function lerNumero(texto: string): number | null {
+  const t = texto.trim().replace(",", ".");
+  if (!t) return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
 }

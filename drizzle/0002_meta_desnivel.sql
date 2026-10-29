@@ -1,0 +1,1 @@
+ALTER TABLE "meta" ADD COLUMN "desnivel_m" real;
