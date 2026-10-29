@@ -132,3 +132,99 @@ export function Sparkline({ valores, cor = "#0284c7" }: { valores: number[]; cor
     </svg>
   );
 }
+
+type PontoPrevisao = { data: string; hoje: number | null; projecao: number | null };
+
+/** Evolução da previsão (hoje e projeção) com a linha da meta; eixo em minutos. */
+export function GraficoPrevisao({ pontos, alvoS }: { pontos: PontoPrevisao[]; alvoS: number }) {
+  const validos = pontos.filter((p) => p.hoje != null || p.projecao != null);
+  if (validos.length < 2) return null;
+  const A = 120;
+  const vals = validos.flatMap((p) => [p.hoje, p.projecao]).filter((v): v is number => v != null);
+  const min = Math.min(alvoS, ...vals) * 0.98;
+  const max = Math.max(alvoS, ...vals) * 1.02;
+  const x = (i: number) => (i / (validos.length - 1)) * L;
+  const y = (v: number) => A - ((v - min) / (max - min)) * A;
+  const linha = (k: "hoje" | "projecao") =>
+    validos
+      .map((p, i) => (p[k] != null ? `${x(i).toFixed(1)},${y(p[k] as number).toFixed(1)}` : null))
+      .filter(Boolean)
+      .map((c, i) => `${i ? "L" : "M"}${c}`)
+      .join("");
+  const min2 = (s: number) => `${Math.floor(s / 60)}'`;
+  return (
+    <figure className="flex flex-col gap-1">
+      <svg viewBox={`0 0 ${L} ${A + 20}`} className="w-full" role="img" aria-label="Evolução da previsão">
+        <line x1={0} x2={L} y1={y(alvoS)} y2={y(alvoS)} stroke="#16a34a" strokeDasharray="4 3" />
+        <text x={L} y={y(alvoS) - 3} fontSize={9} fill="#16a34a" textAnchor="end">
+          meta {min2(alvoS)}
+        </text>
+        <text x={2} y={9} fontSize={9} fill="currentColor" opacity={0.5}>
+          {min2(max)}
+        </text>
+        <text x={2} y={A - 2} fontSize={9} fill="currentColor" opacity={0.5}>
+          {min2(min)}
+        </text>
+        <path d={linha("projecao")} fill="none" stroke="#9333ea" strokeWidth={1.2} strokeDasharray="3 2" />
+        <path d={linha("hoje")} fill="none" stroke="#0284c7" strokeWidth={2} />
+        <text x={0} y={A + 16} fontSize={9} fill="currentColor" opacity={0.6}>
+          {formatarData(validos[0].data)}
+        </text>
+        <text x={L} y={A + 16} fontSize={9} fill="currentColor" opacity={0.6} textAnchor="end">
+          {formatarData(validos.at(-1)!.data)}
+        </text>
+      </svg>
+      <figcaption className="flex gap-3 text-xs text-zinc-600 dark:text-zinc-400">
+        <span style={{ color: "#0284c7" }}>━ Se fosse nesse dia</span>
+        <span style={{ color: "#9333ea" }}>┅ Projeção para a prova</span>
+      </figcaption>
+    </figure>
+  );
+}
+
+/**
+ * Mapa do percurso sem fundo (projeção equirretangular), cada segmento com a sua cor.
+ * `pontos` são [lat, lon] na grelha; `segmentos` indicam [i0, i1] nessa grelha.
+ */
+export function MapaPercurso({
+  pontos,
+  segmentos,
+  passo = 1,
+}: {
+  pontos: ([number | null, number | null] | null)[];
+  segmentos: { pontos: [number, number]; cor: string }[];
+  passo?: number;
+}) {
+  const ok = pontos.filter((p): p is [number, number] => !!p && p[0] != null && p[1] != null);
+  if (ok.length < 2) return null;
+  const lats = ok.map((p) => p[0]);
+  const lons = ok.map((p) => p[1]);
+  const cos = Math.cos((((Math.min(...lats) + Math.max(...lats)) / 2) * Math.PI) / 180);
+  const w = (Math.max(...lons) - Math.min(...lons)) * cos;
+  const h = Math.max(...lats) - Math.min(...lats);
+  const esc = (L - 10) / Math.max(w, h, 1e-9);
+  const altura = h * esc + 10;
+  const px = (p: [number, number]) => [5 + (p[1] - Math.min(...lons)) * cos * esc, altura - 5 - (p[0] - Math.min(...lats)) * esc];
+  return (
+    <svg viewBox={`0 0 ${L} ${altura}`} className="w-full" role="img" aria-label="Mapa do percurso">
+      {segmentos.map((s, k) => {
+        const d = [];
+        for (let i = Math.floor(s.pontos[0] / passo); i <= Math.ceil(s.pontos[1] / passo) && i < pontos.length; i++) {
+          const p = pontos[i];
+          if (p && p[0] != null && p[1] != null) d.push(px(p as [number, number]));
+        }
+        if (d.length < 2) return null;
+        return (
+          <path
+            key={k}
+            d={d.map((c, i) => `${i ? "L" : "M"}${c[0].toFixed(1)},${c[1].toFixed(1)}`).join("")}
+            fill="none"
+            stroke={s.cor}
+            strokeWidth={3}
+            strokeLinecap="round"
+          />
+        );
+      })}
+    </svg>
+  );
+}

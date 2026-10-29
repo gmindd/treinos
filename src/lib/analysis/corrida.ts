@@ -85,25 +85,30 @@ export function rTss(vNormalizada: number, duracaoMovimentoS: number, vLimiar: n
   return { tss: (duracaoMovimentoS / 3600) * intensidade ** 2 * 100, intensidade };
 }
 
-export type JanelaEstavel = { v: number; fc: number };
+/** Janela estável: velocidade GAP média, FC média e segundo do início desde o arranque. */
+export type JanelaEstavel = { v: number; fc: number; t?: number };
 
 /**
  * Janelas estáveis (brief §7.1): depois do aquecimento, janelas seguidas de `janelaS` com
  * CV da velocidade < `cvMax`, todas em movimento. A FC é lida `atrasoFcS` mais à frente.
+ * O CV mede-se na média móvel de `suavizarS` (o ruído segundo a segundo do GPS não é
+ * variação de ritmo: com 1 s quase nenhuma janela passa).
  */
 export function janelasEstaveis(
   a: AmostrasCorrida,
-  o: { aquecimentoS: number; janelaS: number; cvMax: number; atrasoFcS: number },
+  o: { aquecimentoS: number; janelaS: number; cvMax: number; atrasoFcS: number; suavizarS?: number },
 ): JanelaEstavel[] {
   const out: JanelaEstavel[] = [];
+  const suave = mediaMovel(a.gap1Hz, Math.max(1, o.suavizarS ?? 1));
   for (let i = o.aquecimentoS; i + o.janelaS + o.atrasoFcS <= a.gap1Hz.length; i += o.janelaS) {
     const v = a.gap1Hz.slice(i, i + o.janelaS);
     if (v.some((x) => x <= 0)) continue;
     const mv = media(v);
-    if (desvioPadrao(v) / mv >= o.cvMax) continue;
+    const vs = suave.slice(i, i + o.janelaS);
+    if (desvioPadrao(vs) / media(vs) >= o.cvMax) continue;
     const fc = a.fc1Hz.slice(i + o.atrasoFcS, i + o.janelaS + o.atrasoFcS);
     if (fc.some((x) => x == null || x < 60 || x > 230)) continue;
-    out.push({ v: mv, fc: media(fc as number[]) });
+    out.push({ v: mv, fc: media(fc as number[]), t: i });
   }
   return out;
 }

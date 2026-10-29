@@ -1,15 +1,15 @@
 import { connection } from "next/server";
 import Link from "next/link";
-import { asc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { meta } from "@/db/schema";
 import { agruparSemanas, atividadesComMetricas, cargaRecente } from "@/lib/calculo/consultas";
 import { ESTADO_CALCULO } from "@/lib/calculo/recalcular";
 import { estadoSistema, lerEstado } from "@/lib/sistema";
 import { estadoStrava } from "@/lib/strava/estado";
-import { formatarData, formatarDataHora, formatarDuracao } from "@/lib/formato";
+import { estadoValidacao, lerBacktests, previsaoDetalhada, previsoesMetas } from "@/lib/previsao/consultas";
+import { formatarDataHora } from "@/lib/formato";
 import { sair } from "./login/actions";
 import { AtividadeLinha } from "./atividade-linha";
+import { CartaoPrevisao } from "./cartao-previsao";
 import { CartaoStrava } from "./cartao-strava";
 import { GraficoCarga, GraficoSemanas } from "./graficos";
 
@@ -18,15 +18,23 @@ import { GraficoCarga, GraficoSemanas } from "./graficos";
 export default async function Painel({ searchParams }: PageProps<"/">) {
   await connection();
   const { strava, semanas: unidadeSemanas } = await searchParams;
-  const [estado, strv, metas, ultimas, carga, calculo] = await Promise.all([
+  const [estado, strv, previsoes, backtests, ultimas, carga, calculo] = await Promise.all([
     estadoSistema(db()),
     estadoStrava(db()),
-    db().select().from(meta).where(eq(meta.ativa, true)).orderBy(asc(meta.dataProva)),
+    previsoesMetas(db()),
+    lerBacktests(db()),
     atividadesComMetricas(db(), 3),
     cargaRecente(db(), 112),
     lerEstado<{ em: string }>(db(), ESTADO_CALCULO),
   ]);
   const hoje = carga.at(-1);
+  const faltas = await Promise.all(
+    previsoes.map(async (x) =>
+      x.ultimo && !x.ultimo.suficiente
+        ? (((await previsaoDetalhada(db(), x.meta.id))?.detalhes as { falta?: string[] } | null)?.falta ?? [])
+        : [],
+    ),
+  );
   const emHoras = unidadeSemanas === "horas";
   const semanas = agruparSemanas(carga, 12).map((s) => ({
     inicio: s.inicio,
@@ -107,17 +115,22 @@ export default async function Painel({ searchParams }: PageProps<"/">) {
       )}
 
       <section className="flex flex-col gap-3">
-        <h2 className="text-lg font-medium">Metas</h2>
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-lg font-medium">Previsões</h2>
+          <Link href="/backtests" className="text-sm underline">
+            Backtests
+          </Link>
+        </div>
         <ul className="flex flex-col gap-3">
-          {metas.map((m) => (
-            <li key={m.id} className="rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
-              <p className="font-medium">{m.nome}</p>
-              <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                {formatarData(m.dataProva)} · alvo &lt; {formatarDuracao(m.tempoAlvoS)}
-                {m.alvoEmMovimento ? " em movimento" : ""}
-                {m.tempoReferenciaS ? ` · referência ${formatarDuracao(m.tempoReferenciaS)}` : ""}
-              </p>
-            </li>
+          {previsoes.map((x, i) => (
+            <CartaoPrevisao
+              key={x.meta.id}
+              m={x.meta}
+              ultimo={x.ultimo}
+              historico={x.historico}
+              falta={faltas[i]}
+              validacao={estadoValidacao(backtests, x.meta.tipo)}
+            />
           ))}
         </ul>
       </section>

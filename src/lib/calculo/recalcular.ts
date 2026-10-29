@@ -38,7 +38,7 @@ import { gravarEstado } from "@/lib/sistema";
 import { desempacotarStreams } from "@/lib/strava/mapear";
 import { INICIO_BACKFILL } from "@/lib/strava/sincronizar";
 
-export const VERSAO_MODELO = "fase2-2";
+export const VERSAO_MODELO = "fase2-3";
 export const ESTADO_CALCULO = "calculo.ultimo";
 
 type Parametros = Map<string, unknown>;
@@ -48,12 +48,12 @@ function num(p: Parametros, chave: string, omissao: number): number {
   return typeof v === "number" ? v : omissao;
 }
 
-async function lerParametros(db: Db): Promise<Parametros> {
+export async function lerParametros(db: Db): Promise<Parametros> {
   const linhas = await db.select({ chave: parametroModelo.chave, valor: parametroModelo.valor }).from(parametroModelo);
   return new Map(linhas.map((l) => [l.chave, l.valor]));
 }
 
-async function lerConstantes(db: Db): Promise<LinhaConstante[]> {
+export async function lerConstantes(db: Db): Promise<LinhaConstante[]> {
   return db
     .select({
       chave: constante.chave,
@@ -64,7 +64,7 @@ async function lerConstantes(db: Db): Promise<LinhaConstante[]> {
     .from(constante);
 }
 
-async function lerStreams(db: Db, atividadeId: number): Promise<Streams | null> {
+export async function lerStreams(db: Db, atividadeId: number): Promise<Streams | null> {
   const [s] = await db
     .select({ dados: atividadeStream.dados })
     .from(atividadeStream)
@@ -181,6 +181,7 @@ function calcularAtividade(
         cvMax: num(p, "zwift.cv_potencia_max", 0.05),
         descartarInicioS: num(p, "zwift.descartar_inicio_bloco_s", 120),
         variacaoBloco: num(p, "zwift.variacao_bloco", 0.075),
+        suavizarS: num(p, "zwift.suavizacao_cv_s", 30),
       });
       const fracoes = (p.get("zwift.limiares_ftp") as number[] | undefined) ?? [0.88, 0.95];
       detalhes.np = np;
@@ -215,6 +216,7 @@ function calcularAtividade(
             janelaS: num(p, "corrida.janela_estavel_s", 150),
             cvMax: num(p, "corrida.cv_velocidade_max", 0.05),
             atrasoFcS: num(p, "corrida.atraso_fc_s", 20),
+            suavizarS: num(p, "corrida.suavizacao_cv_s", 30),
           })
         : [];
       const limiar = velocidadeLimiar(historicoCorrida.janelas, historicoCorrida.esforcos, c.lthr, {

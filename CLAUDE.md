@@ -88,6 +88,13 @@ PWA instalável. Gráficos legíveis em 380 px de largura.
   - Um só job (`calculo-recalcular`) refaz tudo a partir dos streams: FTP dos testes, TSS/TRIMP/zonas de cada atividade e CTL/ATL/TSB por dia.
   - Corre depois de cada importação (com 30 s de atraso, para juntar várias), quando se muda uma constante ou um parâmetro, todos os dias às 00:15 e a cada arranque do worker.
   - Os métodos de TSS são: potência (Zwift), rTSS (corrida, GAP face ao limiar estimado), hrTSS (resto, com FC) e `estimado_hora` (sem FC).
+  - As janelas estáveis (corrida e Zwift) medem o CV na média móvel de 30 s (`*.suavizacao_cv_s`): com 1 s o ruído do GPS/pedalada não deixava passar quase nenhuma.
+- Previsões (`src/lib/analysis/previsao-*.ts`, `btt.ts`, `estatistica.ts`; job `previsao-recalcular` em `src/lib/previsao/calcular.ts`, que corre depois de cada recálculo):
+  - Corrida (§7.1): modelo A (Huber v = a + b·FC + c·t, 6 semanas) + modelo B (melhores esforços GAP ≥ 3 km, Riegel), bootstrap por sessão, durabilidade e projeção com rendimentos decrescentes.
+  - BTT (§7.2): grelha de 25 m, segmentos por declive, estimador A (mesmo troço → classe → vizinhas → B) e B (física com Crr calibrado e relação FC → W do Zwift, que precisa de ≥ 5 janelas e r² ≥ 0,3).
+  - O "tempo em movimento" do resumo do Strava (aparelho) é maior do que o dos streams (Rota +7%, 3 Cumes +11%, Trofa +17%). Os motores trabalham em segundos dos streams; as metas convertem para segundos do Strava com o fator da edição de referência e os backtests comparam com o tempo da prova medido nos streams.
+  - Snapshot de hoje (com bootstrap) e semanais desde 02/03/2026 (só valor central) em `previsao_snapshot`; backtests em `sistema_estado` (`previsao.backtests`), página /backtests.
+  - `scripts/backtest-local.ts` corre os backtests com streams reais em `.data/strava-real` (descarregados pelo MCP do Strava, fora do repositório).
 - Segredos só em variáveis de ambiente (`.env` local, Coolify em produção). Nunca no repositório.
 - Local sem Docker: `npm run dev` arranca um Postgres embutido (`embedded-postgres`, dados em `.data/`), aplica migrações e seed, e lança web + worker.
 - Deploy: Coolify no VPS (Contabo, Ubuntu 24.04), domínio `treinos.pereiragabriel.com`. Guia em `docs/deploy-coolify.md`.

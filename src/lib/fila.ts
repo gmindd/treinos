@@ -14,6 +14,8 @@ export const FILAS = {
   stravaSubscricao: "strava-subscricao",
   /** Recalcular métricas e carga (depois de importar atividades ou mudar constantes). */
   recalcular: "calculo-recalcular",
+  /** Previsões das metas e backtests (depois de cada recálculo). */
+  previsao: "previsao-recalcular",
 } as const;
 
 /** Espera antes de recalcular: junta várias importações seguidas num só cálculo. */

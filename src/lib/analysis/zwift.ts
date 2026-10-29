@@ -7,16 +7,18 @@ export type JanelaPotencia = { p: number; fc: number };
  * Blocos de potência estável: um bloco começa quando a média de 30 s se afasta mais de
  * `variacaoBloco` da média do bloco. Em cada bloco descartam-se os primeiros
  * `descartarInicioS` (cinética da FC) e o resto é cortado em janelas de `janelaS` com
- * CV da potência < `cvMax`.
+ * CV da potência < `cvMax`, medido na média móvel de `suavizarS` (fora do modo ERG a
+ * potência segundo a segundo varia muito mais do que a FC acompanha).
  */
 export function janelasPotencia(
   watts1Hz: number[],
   fc1Hz: (number | null)[],
-  o: { janelaS: number; cvMax: number; descartarInicioS: number; variacaoBloco?: number; minW?: number },
+  o: { janelaS: number; cvMax: number; descartarInicioS: number; variacaoBloco?: number; minW?: number; suavizarS?: number },
 ): JanelaPotencia[] {
   const variacao = o.variacaoBloco ?? 0.075;
   const minW = o.minW ?? 50;
   const m30 = mediaMovel(watts1Hz, 30);
+  const suave = mediaMovel(watts1Hz, Math.max(1, o.suavizarS ?? 1));
   const blocos: [number, number][] = [];
   let inicio = 0;
   let soma = 0;
@@ -36,7 +38,8 @@ export function janelasPotencia(
     for (let i = a + o.descartarInicioS; i + o.janelaS <= b; i += o.janelaS) {
       const w = watts1Hz.slice(i, i + o.janelaS);
       const mw = media(w);
-      if (mw < minW || desvioPadrao(w) / mw >= o.cvMax) continue;
+      const ws = suave.slice(i, i + o.janelaS);
+      if (mw < minW || desvioPadrao(ws) / media(ws) >= o.cvMax) continue;
       const fc = fc1Hz.slice(i, i + o.janelaS);
       if (fc.some((x) => x == null || x < 60 || x > 230)) continue;
       out.push({ p: mw, fc: media(fc as number[]) });

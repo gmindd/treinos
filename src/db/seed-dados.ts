@@ -78,6 +78,13 @@ export const parametrosIniciais: {
   { chave: "corrida.divergencia_ab", grupo: "corrida", descricao: "Divergência A/B a partir da qual se destaca", unidade: "fração", valor: 0.04, origem: "heuristica" },
   { chave: "corrida.limiar_min_janelas", grupo: "corrida", descricao: "Janelas estáveis mínimas para estimar o limiar pela FC", valor: 15, origem: "heuristica" },
   { chave: "corrida.limiar_dias_esforcos", grupo: "corrida", descricao: "Dias de melhores esforços usados para o limiar", unidade: "dias", valor: 90, origem: "heuristica" },
+  { chave: "corrida.suavizacao_cv_s", grupo: "corrida", descricao: "Média móvel onde se mede o CV das janelas estáveis (o ruído de 1 s do GPS não é variação de ritmo)", unidade: "s", valor: 30, origem: "heuristica" },
+  { chave: "corrida.min_janelas_modelo", grupo: "corrida", descricao: "Janelas estáveis mínimas para o modelo A (FC → velocidade)", valor: 15, origem: "heuristica" },
+  { chave: "corrida.meia_vida_esforcos_dias", grupo: "corrida", descricao: "Meia-vida do peso de um esforço no modelo B", unidade: "dias", valor: 30, origem: "heuristica" },
+  { chave: "corrida.fator_ic_extrapolacao", grupo: "corrida", descricao: "Alargamento do intervalo quando a FC de prova é extrapolada", valor: 1.5, origem: "heuristica" },
+  { chave: "corrida.penalizacao_durabilidade", grupo: "corrida", descricao: "Penalização no tempo por cada critério de durabilidade falhado", unidade: "fração", valor: 0.02, origem: "heuristica" },
+  { chave: "corrida.semanas_tendencia", grupo: "corrida", descricao: "Semanas da tendência da eficiência (projeção)", unidade: "semanas", valor: 12, origem: "heuristica" },
+  { chave: "corrida.backtest_fc_min", grupo: "corrida", descricao: "FC média mínima (melhor 5 km/3 km) para um esforço entrar no backtest", unidade: "bpm", valor: 160, origem: "heuristica" },
   { chave: "corrida.fc_eficiencia", grupo: "corrida", descricao: "FC de referência da eficiência (velocidade GAP a X bpm)", unidade: "bpm", valor: 150, origem: "heuristica" },
 
   // BTT (§7.2)
@@ -104,6 +111,23 @@ export const parametrosIniciais: {
   { chave: "btt.cda", grupo: "btt", descricao: "CdA", unidade: "m²", valor: 0.5, origem: "literatura" },
   { chave: "btt.fc_arranque_controlado", grupo: "btt", descricao: "FC máxima no cenário de arranque controlado", unidade: "bpm", valor: 168, origem: "heuristica" },
   { chave: "btt.km_arranque_controlado", grupo: "btt", descricao: "Até que km vale o arranque controlado", unidade: "km", valor: 10, origem: "heuristica" },
+  { chave: "btt.zwift_semanas", grupo: "btt", descricao: "Semanas de sessões Zwift na relação FC → W", unidade: "semanas", valor: 6, origem: "heuristica" },
+  { chave: "btt.fc_prova_default", grupo: "btt", descricao: "FC por segmento quando não há perfil de referência", unidade: "bpm", valor: 165, origem: "heuristica" },
+  { chave: "btt.sport_types_excluidos", grupo: "btt", descricao: "Tipos Strava fora dos estimadores (outra bicicleta)", valor: ["GravelRide", "EBikeRide", "EMountainBikeRide"], origem: "heuristica" },
+  { chave: "btt.semanas_tendencia", grupo: "btt", descricao: "Semanas da tendência da potência a 160 bpm (projeção)", unidade: "semanas", valor: 12, origem: "heuristica" },
+  { chave: "btt.marco_subida_min", grupo: "btt", descricao: "Marco do plano: tempo-alvo na maior subida (0 = sem marco)", unidade: "min", valor: 12, origem: "heuristica" },
+  { chave: "btt.declive_subida_min", grupo: "btt", descricao: "Declive mínimo dos segmentos que formam a maior subida", unidade: "%", valor: 5, origem: "heuristica" },
+  {
+    chave: "btt.backtests",
+    grupo: "btt",
+    descricao: "Provas do backtest (atividades Strava; dados só até à véspera)",
+    valor: [
+      { stravaId: 18330245057, nome: "Rota da Primavera 2026" },
+      { stravaId: 20350045096, nome: "3 Cumes 2026" },
+      { stravaId: 20633496725, nome: "Raid BTT da Trofa 2026" },
+    ],
+    origem: "dados",
+  },
   { chave: "btt.divergencia_ab", grupo: "btt", descricao: "Divergência A/B a partir da qual se destaca", unidade: "fração", valor: 0.05, origem: "heuristica" },
 
   // Zwift (§8)
@@ -113,7 +137,13 @@ export const parametrosIniciais: {
   { chave: "zwift.variacao_bloco", grupo: "zwift", descricao: "Variação da média de 30 s que inicia um novo bloco", unidade: "fração", valor: 0.075, origem: "heuristica" },
   { chave: "zwift.limiares_ftp", grupo: "zwift", descricao: "Frações do FTP para o tempo acumulado por semana", unidade: "fração", valor: [0.88, 0.95], origem: "heuristica" },
   { chave: "zwift.ef_if_max", grupo: "zwift", descricao: "IF máximo para uma sessão contar como Z2 no EF", unidade: "fração", valor: 0.75, origem: "heuristica" },
+  { chave: "zwift.suavizacao_cv_s", grupo: "zwift", descricao: "Média móvel onde se mede o CV das janelas estáveis (fora do ERG a potência de 1 s oscila muito)", unidade: "s", valor: 30, origem: "heuristica" },
   { chave: "zwift.desacoplamento_bom", grupo: "zwift", descricao: "Desacoplamento Pa:HR abaixo do qual a durabilidade é boa", unidade: "fração", valor: 0.05, origem: "literatura" },
+
+  // Previsões (§7)
+  { chave: "previsao.bootstrap_n", grupo: "previsao", descricao: "Reamostragens do bootstrap por sessão", valor: 200, origem: "heuristica" },
+  { chave: "previsao.tau_semanas", grupo: "previsao", descricao: "Constante dos rendimentos decrescentes da projeção", unidade: "semanas", valor: 6, origem: "heuristica" },
+  { chave: "previsao.ganho_max", grupo: "previsao", descricao: "Melhoria (ou perda) máxima projetada até à prova", unidade: "fração", valor: 0.08, origem: "heuristica" },
 
   // Avaliação (§6.2)
   { chave: "avaliacao.tolerancia_erg", grupo: "avaliacao", descricao: "Tolerância ao alvo de potência em ERG", unidade: "fração", valor: 0.03, origem: "heuristica" },
