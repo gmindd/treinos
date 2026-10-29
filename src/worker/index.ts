@@ -1,12 +1,13 @@
 // Processo worker: fila pg-boss (schema `pgboss`) para sincronização, cálculos e snapshots.
-// Na fase 0 só regista um heartbeat a cada minuto.
 import { PgBoss } from "pg-boss";
 import { sql } from "drizzle-orm";
 import { db } from "@/db/client";
 import { sistemaEstado } from "@/db/schema";
+import { FILAS } from "@/lib/fila";
 import { CHAVE_HEARTBEAT } from "@/lib/sistema";
+import { registarJobsStrava } from "./strava";
 
-const FILA_HEARTBEAT = "heartbeat";
+const FILA_HEARTBEAT = FILAS.heartbeat;
 
 async function heartbeat() {
   await db()
@@ -29,6 +30,7 @@ async function main() {
   await boss.createQueue(FILA_HEARTBEAT);
   await boss.work(FILA_HEARTBEAT, async () => heartbeat());
   await boss.schedule(FILA_HEARTBEAT, "* * * * *", null, { tz: "Europe/Lisbon" });
+  await registarJobsStrava(boss);
   await heartbeat();
   console.log("[worker] a correr");
 

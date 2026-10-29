@@ -1,9 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { COOKIE_SESSAO, tokenValido } from "@/lib/auth/sessao";
 
-// Rotas acessíveis sem sessão. O webhook do Strava (fase 1) e o MCP (fase 7)
-// têm autenticação própria.
-const PUBLICAS = ["/login", "/api/health"];
+// Rotas acessíveis sem sessão. O webhook do Strava valida-se a si próprio (verify_token
+// na subscrição; os eventos só desencadeiam pedidos ao Strava). O MCP (fase 7) terá OAuth.
+const PUBLICAS = ["/login", "/api/health", "/api/strava/webhook"];
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;

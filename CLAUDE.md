@@ -78,6 +78,11 @@ PWA instalável. Gráficos legíveis em 380 px de largura.
 - Código, tabelas e colunas em **português**, sem acentos e em `snake_case` na BD. Unidades base na BD: metros, segundos, m/s, watts, bpm. Datas/horas em `timestamptz` (UTC) e, quando preciso, `data_local` (Europe/Lisbon).
 - Um processo `web` (Next.js) e um processo `worker` (pg-boss, `src/worker/`) na mesma imagem Docker; o `scripts/start.ts` arranca os dois em produção.
 - Auth: utilizador único, password em `APP_PASSWORD`, cookie de sessão assinado (HMAC com `SESSION_SECRET`), verificado em `src/proxy.ts`.
+- Strava (`src/lib/strava/`):
+  - Só o worker faz pedidos à API: o web limita-se a pôr jobs na fila (`src/lib/fila.ts`).
+  - Os limites de pedidos são lidos dos cabeçalhos e guardados em `sistema_estado`. Ao atingi-los, o job é adiado para a janela seguinte.
+  - Os eventos do webhook nunca são confiados: a atividade é sempre pedida de novo ao Strava.
+  - `STRAVA_BASE_URL` serve para testar localmente contra um Strava simulado.
 - Segredos só em variáveis de ambiente (`.env` local, Coolify em produção). Nunca no repositório.
 - Local sem Docker: `npm run dev` arranca um Postgres embutido (`embedded-postgres`, dados em `.data/`), aplica migrações e seed, e lança web + worker.
 - Deploy: Coolify no VPS (Contabo, Ubuntu 24.04), domínio `treinos.pereiragabriel.com`. Guia em `docs/deploy-coolify.md`.

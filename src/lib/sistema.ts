@@ -4,6 +4,21 @@ import { sistemaEstado } from "@/db/schema";
 
 export const CHAVE_HEARTBEAT = "worker.heartbeat";
 
+export async function lerEstado<T>(db: Db, chave: string): Promise<T | null> {
+  const [linha] = await db
+    .select({ valor: sistemaEstado.valor })
+    .from(sistemaEstado)
+    .where(eq(sistemaEstado.chave, chave));
+  return (linha?.valor as T | undefined) ?? null;
+}
+
+export async function gravarEstado(db: Db, chave: string, valor: unknown): Promise<void> {
+  await db
+    .insert(sistemaEstado)
+    .values({ chave, valor })
+    .onConflictDoUpdate({ target: sistemaEstado.chave, set: { valor, atualizadoEm: sql`now()` } });
+}
+
 export type EstadoSistema = {
   bd: boolean;
   worker: { ultimoSinal: string | null; ativo: boolean };
@@ -28,4 +43,8 @@ export async function estadoSistema(db: Db, agora = new Date()): Promise<EstadoS
       ativo: ultimo !== null && agora.getTime() - ultimo.getTime() < 3 * 60 * 1000,
     },
   };
+}
+
+export async function apagarEstado(db: Db, chave: string): Promise<void> {
+  await db.delete(sistemaEstado).where(eq(sistemaEstado.chave, chave));
 }

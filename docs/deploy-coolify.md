@@ -56,6 +56,25 @@ O primeiro build demora uns minutos. Cada `git push` para `main` faz um deploy n
 - `https://treinos.pereiragabriel.com/api/health` deve mostrar `"bd":true` e `"worker":{… "ativo":true}`.
 - `https://treinos.pereiragabriel.com` pede a password. Depois de entrares mostra as duas metas e "Worker: ativo".
 
+## 5. Strava (fase 1)
+
+1. Em https://www.strava.com/settings/api cria a app com:
+   - *Website*: `https://treinos.pereiragabriel.com`
+   - *Authorization Callback Domain*: `treinos.pereiragabriel.com` (sem `https://`)
+2. No Coolify, junta às variáveis da app:
+
+   | Nome | Valor |
+   |---|---|
+   | `STRAVA_CLIENT_ID` | Client ID da app do Strava |
+   | `STRAVA_CLIENT_SECRET` | Client Secret da app do Strava |
+   | `STRAVA_WEBHOOK_VERIFY_TOKEN` | texto aleatório (gerado como o `SESSION_SECRET`) |
+
+3. Depois do deploy, no painel da app: **Ligar ao Strava** → autorizar.
+   - Começa a importação desde 01/01/2026. O progresso aparece no painel e pode demorar horas por causa dos limites do Strava.
+   - O worker cria sozinho a subscrição do webhook. Quando o painel mostrar "Atualização automática: ativa", as atividades novas entram em menos de 2 min.
+
+O *Access Token* que a página do Strava mostra não é usado. A app obtém e renova o seu próprio token.
+
 ## Se algo falhar
 
 - **Logs** da app no Coolify: procura por `[start]` (migrações), `[worker]` e erros de `Variáveis de ambiente inválidas` (falta alguma variável).

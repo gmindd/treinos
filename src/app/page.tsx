@@ -1,18 +1,25 @@
 import { connection } from "next/server";
-import { asc, eq } from "drizzle-orm";
+import Link from "next/link";
+import { asc, desc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { meta } from "@/db/schema";
+import { atividade, meta } from "@/db/schema";
 import { estadoSistema } from "@/lib/sistema";
+import { estadoStrava } from "@/lib/strava/estado";
 import { formatarData, formatarDataHora, formatarDuracao } from "@/lib/formato";
 import { sair } from "./login/actions";
+import { AtividadeLinha } from "./atividade-linha";
+import { CartaoStrava } from "./cartao-strava";
 
-// Painel provisório da fase 0: confirma que a BD, o seed e o worker estão a funcionar.
+// Painel provisório: estado do Strava, últimas atividades, metas e sistema.
 // O painel real (§10) chega na fase 6.
-export default async function Painel() {
+export default async function Painel({ searchParams }: PageProps<"/">) {
   await connection();
-  const [estado, metas] = await Promise.all([
+  const { strava } = await searchParams;
+  const [estado, strv, metas, ultimas] = await Promise.all([
     estadoSistema(db()),
+    estadoStrava(db()),
     db().select().from(meta).where(eq(meta.ativa, true)).orderBy(asc(meta.dataProva)),
+    db().select().from(atividade).where(eq(atividade.apagada, false)).orderBy(desc(atividade.inicio)).limit(3),
   ]);
 
   return (
@@ -25,6 +32,24 @@ export default async function Painel() {
           </button>
         </form>
       </header>
+
+      <CartaoStrava estado={strv} mensagem={typeof strava === "string" ? strava : undefined} />
+
+      {ultimas.length > 0 && (
+        <section className="flex flex-col gap-3">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-lg font-medium">Últimas atividades</h2>
+            <Link href="/atividades" className="text-sm text-zinc-600 underline dark:text-zinc-400">
+              Ver todas
+            </Link>
+          </div>
+          <ul className="flex flex-col gap-2">
+            {ultimas.map((a) => (
+              <AtividadeLinha key={a.id} a={a} />
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="flex flex-col gap-3">
         <h2 className="text-lg font-medium">Metas</h2>
